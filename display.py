@@ -23,6 +23,7 @@ class Display:
         self.windowed_size = C.WINDOW
         self.fullscreen = False
         self.font_scale = 1.0
+        self.scene_mode = '3d'
         try:
             data = json.loads(self.path.read_text(encoding='utf-8'))
             if not isinstance(data, dict):
@@ -31,6 +32,8 @@ class Display:
             if len(size) == 2 and all(isinstance(v, int) and low <= v <= 7680 for v,low in zip(size,(640,430))):
                 self.windowed_size = tuple(size)
             self.fullscreen = data.get('fullscreen') is True
+            if data.get('scene_mode') in ('2d','3d'):
+                self.scene_mode = data['scene_mode']
             if data.get('font_scale') in (1.0, 1.15, 1.3):
                 self.font_scale = data['font_scale']
         except (OSError, ValueError, TypeError):
@@ -80,7 +83,7 @@ class Display:
 
     def save(self):
         data = {'window_size': self.windowed_size, 'fullscreen': self.fullscreen,
-                'font_scale': self.font_scale}
+                'font_scale': self.font_scale, 'scene_mode': self.scene_mode}
         temp = self.path.with_suffix('.tmp')
         try:
             temp.write_text(json.dumps(data, indent=2), encoding='utf-8')

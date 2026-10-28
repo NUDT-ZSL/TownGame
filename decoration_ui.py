@@ -128,10 +128,14 @@ class DecorationController:
             if not self.moving and CATALOG[self.kind][1]>app.game.meta['coins']:reason='金币不足'
             rect=view.project_rect((cx*48,cy*48,48,48))
             old=surface.get_clip();surface.set_clip(view.viewport)
-            image=view.scaled(sprite(self.kind,self.orientation,app.game.season,view.light,self.moving or 'preview')).copy();image.set_alpha(150)
-            anchor=view.camera.world_to_screen(((cx+.5)*48,(cy+1)*48))
-            surface.blit(image,image.get_rect(midbottom=anchor))
-            pygame.draw.rect(surface,ui.RED if reason else ui.GREEN,rect,2)
+            if getattr(view,'is_3d',False):
+                view.wire_preview(surface,(cx*48,cy*48,48,48),120 if self.kind.startswith('tree_') else 90 if self.kind=='lamp' else 40,
+                                  ui.RED if reason else ui.GREEN)
+            else:
+                image=view.scaled(sprite(self.kind,self.orientation,app.game.season,view.light,self.moving or 'preview')).copy();image.set_alpha(150)
+                anchor=view.camera.world_to_screen(((cx+.5)*48,(cy+1)*48))
+                surface.blit(image,image.get_rect(midbottom=anchor))
+                pygame.draw.rect(surface,ui.RED if reason else ui.GREEN,rect,2)
             surface.set_clip(old)
         r=self.panel();art.clay_panel(surface,r,ui.PANEL,12,ui.LINE)
         app.fonts.text(surface,'自由装饰 · 移动 / 旋转',(r.x+14,r.y+12),18,ui.GREEN)

@@ -92,7 +92,7 @@ class AppearanceSelectionTests(unittest.TestCase):
         self.game = Game(Database(self.path),real_now=1800000000.,seed=42)
         self.clock = patch('game.time.time',return_value=self.game.meta['real_anchor'])
         self.clock.start()
-        self.app = ManorApp(self.game,settings_path=Path(self.temp.name)/'settings.json')
+        self.app = ManorApp(self.game,settings_path=Path(self.temp.name)/'settings.json',scene_mode='2d')
         self.pet_id = self.game.living[0].pet_id
 
     def tearDown(self):

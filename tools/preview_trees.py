@@ -33,7 +33,7 @@ def main():
     with tempfile.TemporaryDirectory() as folder:
         game=Game(Database(Path(folder)/'preview.db'),real_now=1800000000.,seed=42)
         try:
-            app=ManorApp(game,settings_path=Path(folder)/'settings.json');app.set_window_size((1600,1000))
+            app=ManorApp(game,settings_path=Path(folder)/'settings.json',scene_mode='2d');app.set_window_size((1600,1000))
             app.toast_until=0;app.draw();pygame.image.save(app.screen,str(output/'varied-estate.png'))
             app.courtyard.focus_zone('park');app.courtyard.camera.zoom=.85;app.draw()
             pygame.image.save(app.screen,str(output/'varied-park.png'))

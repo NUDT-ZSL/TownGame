@@ -28,7 +28,7 @@ class ExpansionTests(unittest.TestCase):
         self.path=Path(self.temp.name)/'game.db'
         self.g=Game(Database(self.path),real_now=1800000000.,seed=42)
         self.clock=patch('game.time.time',return_value=self.g.meta['real_anchor']);self.clock.start()
-        self.app=ManorApp(self.g,settings_path=Path(self.temp.name)/'settings.json')
+        self.app=ManorApp(self.g,settings_path=Path(self.temp.name)/'settings.json',scene_mode='2d')
         self.output=C.ROOT/'.test-output';self.output.mkdir(exist_ok=True)
 
     def tearDown(self):

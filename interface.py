@@ -21,7 +21,7 @@ from db import SaveError
 
 
 class ManorApp:
-    def __init__(self, game, settings_path=None):
+    def __init__(self, game, settings_path=None, scene_mode=None):
         prepare_dpi()
         pygame.init()
         pygame.display.set_caption("慢时光 · 宠物经营小镇")
@@ -44,7 +44,11 @@ class ManorApp:
         # UI 专用随机数与游戏 rng 完全隔离，动画不会影响存档确定性。
         self.ui_rng = random.Random(20261027)
         self.renderer = pet_art.PetArtRenderer()
-        self.courtyard = town_view.TownView(self.renderer, self.ui_rng, self.fonts)
+        if scene_mode in ('2d','3d'):self.display.scene_mode=scene_mode
+        if self.display.scene_mode=='3d':
+            from town_view3d import TownView3D
+            self.courtyard=TownView3D(self.renderer,self.ui_rng,self.fonts)
+        else:self.courtyard = town_view.TownView(self.renderer, self.ui_rng, self.fonts)
         self.actors, self.actor_order = {}, []
         self.pet_hits, self.tile_hits = [], []
         self.menu_open = False
@@ -80,6 +84,8 @@ class ManorApp:
             self.notify("离线结算完成：庄园流逝了"+remaining(game.offline_seconds, 0))
         if game.db.recovery_message:
             self.notify('存档恢复通知：'+game.db.recovery_message)
+        if getattr(self.courtyard,'is_3d',False) and self.courtyard.engine.failure:
+            self.notify('显卡三维渲染暂不可用，已使用软件三维；F9 可切回二维提高流畅度。')
 
     def notify(self, text):
         self.toast, self.toast_until = str(text), time.monotonic()+6
@@ -103,6 +109,25 @@ class ManorApp:
         self.display.font_scale = self.fonts.content_scale = scale
         self._save_display()
         self.refresh()
+
+    def set_scene_mode(self,mode):
+        if mode==self.display.scene_mode:return
+        old=self.courtyard
+        center=old.camera.screen_to_world(old.viewport.center)
+        if mode=='3d':
+            from town_view3d import TownView3D
+            view=TownView3D(self.renderer,self.ui_rng,self.fonts)
+        else:view=town_view.TownView(self.renderer,self.ui_rng,self.fonts)
+        # 视角切换保留当前行人、车辆和动画进度，不重置游戏或随机数。
+        for name in ('people','traffic','time','farm','vehicle_card'):setattr(view,name,getattr(old,name))
+        view.sanitation.source=view.farm.sanitation
+        view.camera.center(center)
+        self.courtyard=view;self.display.scene_mode=mode;self._layout_size=None
+        self._configure_layout()
+        if hasattr(old,'close'):old.close()
+        self._save_display();self.refresh()
+        self.notify('已切换立体小镇：Q/E 转向，↑/↓ 调整俯仰，F9 切换二维。' if mode=='3d' else '已切换二维视图，F9 返回立体小镇。')
+        if mode=='3d' and view.engine.failure:self.notify('显卡渲染不可用，正在使用软件三维；可按 F9 切换二维。')
 
     def set_window_size(self, size):
         self.display.fullscreen = False
@@ -462,6 +487,11 @@ class ManorApp:
 
     def _page_settings(self):
         m = self.modal
+        m.heading('场景视角')
+        m.row([(label+(' · 已选' if self.display.scene_mode==mode else ''),lambda value=mode:self.set_scene_mode(value))
+               for label,mode in (('立体三维','3d'),('经典二维','2d'))])
+        m.text('三维：Q/E 转动视角，↑/↓ 调整俯仰，拖拽移动，滚轮缩放。F9 切换视图。',ui.MUTED)
+        if getattr(self.courtyard,'is_3d',False):m.text('渲染：'+self.courtyard.engine.backend,ui.MUTED,size=13)
         m.heading('窗口显示')
         m.text('大窗口会展示更多场景，按钮保持合适大小；小窗口自动缩小界面。支持系统最大化。', ui.MUTED)
         m.row([('1280 × 860',lambda:self.set_window_size((1280,860))),
@@ -473,7 +503,7 @@ class ManorApp:
         m.row([(label+(' · 已选' if self.display.font_scale==scale else ''),lambda value=scale:self.set_font_scale(value))
                for label,scale in (('标准 100%',1.0),('较大 115%',1.15),('大号 130%',1.3))])
         m.heading('快捷键')
-        m.text('F10 显示设置 · F11 / Alt+Enter 全屏 · N 通知中心 · Esc 关闭当前面板',ui.MUTED)
+        m.text('F9 二维/三维 · F10 显示设置 · F11 / Alt+Enter 全屏 · N 通知中心 · Esc 关闭当前面板',ui.MUTED)
 
     def _page_notifications(self):
         m = self.modal
@@ -1072,6 +1102,7 @@ class ManorApp:
         for title, text in [
             ("欢迎来到慢时光", "庭院里的伙伴会自由散步：单击抚摸并选中，连点两下或右键查看档案。底栏可喂食、洗澡、互动；把喂食盘里的食物拖到伙伴身上也能喂食。点击小屋管理建筑，地图查看全部地块；顶部菜单访问全部系统。滚轮翻阅弹窗，Esc关闭或取消拖拽，所有操作自动保存。"),
             ("小镇大地图", "主场景按住鼠标左键或中键拖动，滚轮以鼠标位置缩放。右下小地图点击定位，Home键或右上返回庄园按钮回到宠物区。底栏小镇地图查看六大街区，中央庄园仍保留原有20块可建造地块。拖拽不会触发宠物互动。"),
+            ('立体小镇', '默认使用实体三维场景，Q/E转动视角，↑/↓调整俯仰。点击模型身体、屋顶或自己种植的树冠可操作对应对象，选中宠物的姓名标签也可点击。F9切换二维/三维，F10可查看渲染方式和显示设置；切换视图保留经营进度。'),
             ('自由道路与房屋', '点击底栏建设或按B，1～6切换道路、住宅、商业、产业、公共和拆除。道路左键拖动、松手整笔扣费保存；快速移动会补齐格子。右键/中键移图，滚轮缩放，R旋转建筑，Ctrl+Z撤销最近道路。Esc取消预览，再次按Esc退出。右侧切风格与建筑，格线和地价可切换。'),
             ('施工与道路中断', '临街才能放置建筑，水域、庄园安全边距和固定地标不可施工；未开放街区先支付原有开放费。建筑按游戏时间施工，离线也会完工。完工且通路才增加人口、税收和吸引力。拆除道路可能暂停街区消费、租金或农田收益，恢复后继续，不补发。默认道路免费赠送，拆除不退款；自建道路退原始费用50%，改铺费不参与退款。'),
             ('车辆与建设拆除', '汽车、公交和货车沿玩家路网右侧车道行驶，风雨雪减速，夜间亮灯。点击车辆查看轻量行程卡。路被拆后车辆改道或安全退场，行人改道或等待。拆楼需确认，施工中返还15%，完工返还30%；税收独立于实时车流结算。'),
@@ -1330,6 +1361,9 @@ class ManorApp:
             if event.key == pygame.K_F10:
                 self.open('settings')
                 return
+            if event.key == pygame.K_F9:
+                self.set_scene_mode('2d' if self.display.scene_mode=='3d' else '3d')
+                return
             if event.key == pygame.K_n and not (self.modal and self.modal.inputs):
                 self.open('notifications')
                 return
@@ -1360,6 +1394,10 @@ class ManorApp:
             return
         if event.type==pygame.KEYDOWN and event.key==pygame.K_b:
             self.builder.toggle()
+            return
+        if event.type==pygame.KEYDOWN and getattr(self.courtyard,'is_3d',False) and event.key in (pygame.K_q,pygame.K_e,pygame.K_UP,pygame.K_DOWN):
+            self.courtyard.camera.orbit(-15 if event.key==pygame.K_q else 15 if event.key==pygame.K_e else 0,
+                                       5 if event.key==pygame.K_UP else -5 if event.key==pygame.K_DOWN else 0)
             return
         if event.type==pygame.KEYDOWN and event.key==pygame.K_d:
             self.decorator.exit() if self.decorator.active else self.decorator.enter()
@@ -1472,5 +1510,8 @@ class ManorApp:
                     break
         finally:
             self._save_display()
-            self.game.close()
-            pygame.quit()
+            try:self.game.close()
+            finally:
+                try:
+                    if hasattr(self.courtyard,'close'):self.courtyard.close()
+                finally:pygame.quit()

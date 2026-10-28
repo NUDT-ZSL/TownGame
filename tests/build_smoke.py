@@ -237,7 +237,7 @@ def migration_preview(output):
                 assert migrated.meta[field]==before['meta'][field]
             assert len(migrated.roads)==114 and not migrated.town_buildings
             assert all(migrated.construction.grid.connected_zones().values())
-            preview=ManorApp(migrated); preview.open('map'); preview.draw()
+            preview=ManorApp(migrated,scene_mode='2d'); preview.open('map'); preview.draw()
             pygame.image.save(preview.screen,str(output/'migrated-town.png'))
             print('v4 migration screenshot passed: pets/coins/districts/people/weather/farm preserved; 114 free connected roads.')
         finally: migrated.close(real_now=before['meta']['real_anchor'])

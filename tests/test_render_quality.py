@@ -80,7 +80,7 @@ class RenderQualityTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             g=Game(Database(Path(folder)/'render.db'),real_now=1800000000.,seed=42)
             try:
-                app=ManorApp(g,settings_path=Path(folder)/'ui.json')
+                app=ManorApp(g,settings_path=Path(folder)/'ui.json',scene_mode='2d')
                 app.courtyard.camera.zoom=.8
                 before=g.snapshot();rng=g.rng.getstate()
                 with patch('pygame.transform.scale',wraps=pygame.transform.scale) as scale:

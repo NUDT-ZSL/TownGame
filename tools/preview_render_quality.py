@@ -21,7 +21,7 @@ def main():
     with tempfile.TemporaryDirectory() as folder:
         g=Game(Database(Path(folder)/'render.db'),real_now=1800000000.,seed=42)
         try:
-            app=ManorApp(g,settings_path=Path(folder)/'ui.json');app.set_window_size((1600,1000))
+            app=ManorApp(g,settings_path=Path(folder)/'ui.json',scene_mode='2d');app.set_window_size((1600,1000))
             for name,hour,weather in (('day-clear',12,'晴天'),('night-wind',21,'大风'),('rain',16,'小雨')):
                 g.meta['sim_ts']=g.meta['start_ts']//C.DAY*C.DAY+hour*C.HOUR
                 g.meta['weather']=weather;app.toast_until=0;app.courtyard.time=1

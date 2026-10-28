@@ -26,8 +26,9 @@ def in_bounds(cx,cy):
 
 
 def iter_visible_cells(camera):
-    left,top = world_to_cell(camera.x,camera.y)
-    right,bottom = world_to_cell(camera.x+camera.width/camera.zoom,camera.y+camera.height/camera.zoom)
+    bounds=camera.ground_bounds() if getattr(camera,'is_3d',False) else (camera.x,camera.y,camera.x+camera.width/camera.zoom,camera.y+camera.height/camera.zoom)
+    left,top = world_to_cell(bounds[0],bounds[1])
+    right,bottom = world_to_cell(bounds[2],bounds[3])
     for y in range(max(0,top),min(GRID_ROWS-1,bottom)+1):
         for x in range(max(0,left),min(GRID_COLS-1,right)+1):
             yield x,y

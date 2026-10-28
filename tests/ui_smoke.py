@@ -44,7 +44,7 @@ def run():
         p.last_stage = "成年"
         g.events.append(event.create_event(g.now, 50, g.rng))
         g.save()
-        app = ManorApp(g, settings_path=Path(folder)/'ui-settings.json')
+        app = ManorApp(g, settings_path=Path(folder)/'ui-settings.json',scene_mode='2d')
         cleanup.callback(pygame.quit)
         # UI 动画/绘制不得消耗游戏随机数，否则会破坏存档确定性。
         rng_state = g.rng.getstate()

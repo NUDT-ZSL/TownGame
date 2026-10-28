@@ -73,7 +73,7 @@ class TreePlantingTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory();self.path=Path(self.temp.name)/'tree.db'
         self.g=Game(Database(self.path),real_now=1800000000.,seed=42)
         self.clock=patch('game.time.time',return_value=self.g.meta['real_anchor']);self.clock.start()
-        self.app=ManorApp(self.g,settings_path=Path(self.temp.name)/'ui.json')
+        self.app=ManorApp(self.g,settings_path=Path(self.temp.name)/'ui.json',scene_mode='2d')
 
     def tearDown(self):
         self.clock.stop();self.g.db.close();ui.display=None;pygame.quit();self.temp.cleanup()

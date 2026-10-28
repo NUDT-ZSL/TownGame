@@ -154,14 +154,18 @@ class BuildController:
     def draw(self,surface):
         g=self.app.game; view=self.app.courtyard; f=self.app.fonts
         overlay=pygame.Surface(view.viewport.size,pygame.SRCALPHA)
+        is3d=getattr(view,'is_3d',False)
+        def ground(rect,color,width=0):
+            if is3d:pygame.draw.polygon(overlay,color,[(x-view.viewport.x,y-view.viewport.y) for x,y in view.ground_polygon(rect)],width)
+            else:pygame.draw.rect(overlay,color,view.project_rect(rect).move(0,-88),width)
         if self.grid_lines or self.land_overlay:
             for c in iter_visible_cells(view.camera):
                 r=view.project_rect(cell_rect(*c)).move(0,-88)
                 if self.land_overlay:
                     score=g.construction.land_value(c)
                     color=((195,118,92),(217,171,110),(221,207,146),(167,195,125),(112,177,130))[max(0,min(4,(score+4)//3))]
-                    pygame.draw.rect(overlay,(*color,75),r)
-                if self.grid_lines: pygame.draw.rect(overlay,(247,248,223,63),r,1)
+                    ground(cell_rect(*c),(*color,75))
+                if self.grid_lines:ground(cell_rect(*c),(247,248,223,63),1)
         p,text,reason=self._preview()
         if p:
             if 'valid' in p:
@@ -170,24 +174,32 @@ class BuildController:
                 preview_grid=RoadGrid(list(union.values()))
                 for cell in p['valid']:
                     rect=view.project_rect(cell_rect(*cell)).move(0,-88)
-                    if self.tool==0:
+                    if self.tool==0 and not is3d:
                         tile=town_art.road_tile(self.style,preview_grid.mask(cell),g.season,view.light,g.weather.current)
                         overlay.blit(pygame.transform.scale(tile,rect.size),rect)
                     color=(83,183,117,180) if p['affordable'] else (211,90,77,180)
-                    pygame.draw.rect(overlay,color if self.tool==0 else (223,133,89,140),rect,2 if self.tool==0 else 0)
-                for cell,_ in p['invalid']: pygame.draw.rect(overlay,(207,88,82,95),view.project_rect(cell_rect(*cell)).move(0,-88))
+                    ground(cell_rect(*cell),color if self.tool==0 else (223,133,89,140),2 if self.tool==0 else 0)
+                for cell,_ in p['invalid']:ground(cell_rect(*cell),(207,88,82,95))
             else:
                 for cell in p['cells']:
-                    pygame.draw.rect(overlay,(203,92,79,110) if p['reason'] else (88,182,120,110),view.project_rect(cell_rect(*cell)).move(0,-88))
+                    ground(cell_rect(*cell),(203,92,79,110) if p['reason'] else (88,182,120,110))
                 for cell in p['frontage']:
-                    pygame.draw.rect(overlay,(255,229,149,170),view.project_rect(cell_rect(*cell)).move(0,-88),3)
-                b=p['building']; sprite=town_art.building_sprite(b['catalog_key'],b['orientation'],view.light,g.season,g.weather.current)
-                sprite=pygame.transform.smoothscale(sprite,(round(sprite.get_width()*view.camera.zoom),round(sprite.get_height()*view.camera.zoom))).copy(); sprite.set_alpha(130)
-                anchor=view.camera.world_to_screen(((b['cx']+b['w']/2)*48,(b['cy']+b['h'])*48+8))
-                overlay.blit(sprite,sprite.get_rect(midbottom=(anchor[0],anchor[1]-88)))
+                    ground(cell_rect(*cell),(255,229,149,170),3)
+                b=p['building']
+                if is3d:
+                    view.wire_preview(overlay,(b['cx']*48,b['cy']*48,b['w']*48,b['h']*48),120,
+                                      (203,92,79,210) if p['reason'] else (88,182,120,210),view.viewport.topleft)
+                else:
+                    sprite=town_art.building_sprite(b['catalog_key'],b['orientation'],view.light,g.season,g.weather.current)
+                    sprite=pygame.transform.smoothscale(sprite,(round(sprite.get_width()*view.camera.zoom),round(sprite.get_height()*view.camera.zoom))).copy(); sprite.set_alpha(130)
+                    anchor=view.camera.world_to_screen(((b['cx']+b['w']/2)*48,(b['cy']+b['h'])*48+8))
+                    overlay.blit(sprite,sprite.get_rect(midbottom=(anchor[0],anchor[1]-88)))
                 cx,cy=view.camera.world_to_screen(cell_center(b['cx'],b['cy']))
                 dx,dy=((0,-1),(1,0),(0,1),(-1,0))[b['orientation']]
-                pygame.draw.line(overlay,(251,227,145),(cx,cy-88),(cx+dx*25,cy-88+dy*25),4)
+                if is3d:
+                    wx,wy=cell_center(b['cx'],b['cy']);ex,ey=view.camera.world_to_screen((wx+dx*35,wy+dy*35,2))
+                    pygame.draw.line(overlay,(251,227,145),(cx,cy-88),(ex,ey-88),4)
+                else:pygame.draw.line(overlay,(251,227,145),(cx,cy-88),(cx+dx*25,cy-88+dy*25),4)
         for fixed in (view.legend_rect,view.home_button,view.overview_rect):
             overlay.fill((0,0,0,0),fixed.move(0,-88))
         surface.blit(overlay,(0,88))

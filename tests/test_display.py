@@ -22,7 +22,7 @@ class DisplayTests(unittest.TestCase):
         self.temp = tempfile.TemporaryDirectory()
         self.folder = Path(self.temp.name)
         self.game = Game(Database(self.folder/'game.db'), seed=42)
-        self.app = ManorApp(self.game, settings_path=self.folder/'settings.json')
+        self.app = ManorApp(self.game, settings_path=self.folder/'settings.json',scene_mode='2d')
         self.output = Path(__file__).resolve().parents[1]/'.test-output'
         self.output.mkdir(exist_ok=True)
 
