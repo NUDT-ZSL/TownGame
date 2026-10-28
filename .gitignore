@@ -1,0 +1,26 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+
+# 项目内本机 pygame 运行时（与解释器版本绑定，不入库）
+.runtime/
+
+# 存档数据库与日志（运行时生成）
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+log.txt
+*.log
+
+# 测试与打包产物
+.test-output/
+SOURCE_CODE.md
+pet_manor_source.zip
+
+# 编辑器与系统文件
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

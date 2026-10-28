@@ -1,0 +1,18 @@
+{
+  "python": "3.11.18",
+  "platform": "Windows-10-10.0.26200-SP0",
+  "cpu": "AMD64 Family 25 Model 97 Stepping 2, AuthenticAMD",
+  "driver": "dummy",
+  "frames": 180,
+  "warmup": 40,
+  "mean_ms": 15.160085553523256,
+  "p95_ms": 18.993799982126802,
+  "max_ms": 23.463500023353845,
+  "people": 80,
+  "vehicles": 40,
+  "pets": 5,
+  "roads": 345,
+  "buildings": 9,
+  "visible_people": 80,
+  "visible_vehicles": 40
+}
