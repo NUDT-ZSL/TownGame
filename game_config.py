@@ -101,7 +101,7 @@ FIGHT_UNHAPPY_BONUS = .08
 FIGHT_UNHAPPY_THRESHOLD = 25
 FIGHT_CROWD_BONUS = .04
 FIGHT_MATE_FACTOR = .25
-FIGHT_PERSONALITY = {"粘人": .8, "高冷": 1.3, "胆小": .65, "吃货": 1.1}
+FIGHT_PERSONALITY = {"粘人": .8, "高冷": 1.3, "胆小": .65, "吃货": 1.1, "活泼": 1.0}
 FIGHT_DAMAGE = (8, 22)
 FIGHT_INJURY = (10, 25)
 FIGHT_HAPPY_LOSS = 12
@@ -127,10 +127,11 @@ RENAME_MAX = 16
 INTERACT_COOLDOWN = HOUR
 PET_LIMIT = 100
 STAGES = ((.10, "幼崽"), (.25, "少年"), (.80, "成年"), (1.0, "老年"))
-PERSONALITIES = ("粘人", "高冷", "胆小", "吃货")
+PERSONALITIES = ("粘人", "高冷", "胆小", "吃货", "活泼")
 FEEDBACK = {
     "粘人": "扑进你的怀里，久久不肯离开。", "高冷": "悄悄靠近，假装只是路过。",
     "胆小": "小心翼翼地蹭了蹭你的手心。", "吃货": "翻着你的口袋，期待下一份零食。",
+    "活泼": "围着你蹦跳，邀请你一起追逐玩具。",
 }
 DECAY = {"hunger": .90, "happy": .38, "cleanliness": .60}
 STARVING = 20
@@ -159,7 +160,7 @@ HOSPITAL_RECOVERY = .08
 HOSPITAL_HEAL_BONUS = 3
 TREATMENT_FEE = 12
 HOSPITAL_FEE_REDUCTION = 4
-PLAY_PERSONALITY_MULT = {"粘人": 1.3, "高冷": .75, "胆小": .9, "吃货": 1}
+PLAY_PERSONALITY_MULT = {"粘人": 1.3, "高冷": .75, "胆小": .9, "吃货": 1, "活泼": 1.0}
 PLAY_PARK_BONUS = 2
 PLAY_PARK_MAX = 10
 BREED_MIN_HEALTH = 50

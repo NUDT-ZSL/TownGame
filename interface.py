@@ -11,17 +11,26 @@ import pet_art
 import town_view
 from build_ui import BuildController
 import town_catalog as K
+from display import Display, prepare_dpi
+from render_canvas import RenderCanvas
+from appearance import pet_variant, rabbit_variant, style_groups, style_description
+from pet_services import action_reason,attention_items
+from decoration_ui import DecorationController
 from game import GameError, utc_text, remaining
 from db import SaveError
 
 
 class ManorApp:
-    def __init__(self, game):
+    def __init__(self, game, settings_path=None):
+        prepare_dpi()
         pygame.init()
         pygame.display.set_caption("慢时光 · 宠物经营小镇")
-        self.screen = pygame.display.set_mode(C.WINDOW)
+        self.display = Display(settings_path)
+        ui.display = self.display
+        self.screen = RenderCanvas(C.WINDOW)
         self.clock = pygame.time.Clock()
         self.fonts = ui.Fonts()
+        self.fonts.content_scale = self.display.font_scale
         self.game = game
         self.running = True
         self.modal = None
@@ -30,7 +39,8 @@ class ManorApp:
         self.toast = ""
         self.toast_until = 0
         self.last_tick = self.last_save = self.last_frame = time.monotonic()
-        self.modal_seen_events = set()
+        self.notifications = []
+        self.notification_button = ui.Button((246, 22, 96, 44), '通知 N', lambda:self.open('notifications'), variant='secondary')
         # UI 专用随机数与游戏 rng 完全隔离，动画不会影响存档确定性。
         self.ui_rng = random.Random(20261027)
         self.renderer = pet_art.PetArtRenderer()
@@ -61,14 +71,58 @@ class ManorApp:
             'build':lambda:self.builder.enter(),
         })
         self.builder=BuildController(self)
+        self.decorator=DecorationController(self)
+        self.chrome=RenderCanvas(C.WINDOW)
+        self._layout_size=None
+        self._configure_layout()
         self._sync_actors()
         if game.offline_seconds >= 60:
             self.notify("离线结算完成：庄园流逝了"+remaining(game.offline_seconds, 0))
         if game.db.recovery_message:
-            self.open("message", {"title": "存档恢复通知", "text": game.db.recovery_message})
+            self.notify('存档恢复通知：'+game.db.recovery_message)
 
     def notify(self, text):
         self.toast, self.toast_until = str(text), time.monotonic()+6
+        if not self.notifications or self.notifications[-1]['text'] != str(text):
+            self.notifications.append({'text':str(text), 'ts':self.game.now, 'read':False})
+            self.notifications = self.notifications[-100:]
+
+    def _save_display(self):
+        if not self.display.save():
+            self.notify('显示设置暂时无法保存，请检查目录权限。')
+
+    def toggle_fullscreen(self):
+        self.display.fullscreen = not self.display.fullscreen
+        self.display.set_mode()
+        self._configure_layout()
+        self._save_display()
+        if self.page and self.page[0] == 'settings':
+            self.refresh()
+
+    def set_font_scale(self, scale):
+        self.display.font_scale = self.fonts.content_scale = scale
+        self._save_display()
+        self.refresh()
+
+    def set_window_size(self, size):
+        self.display.fullscreen = False
+        self.display.resize(size)
+        self._configure_layout()
+        self._save_display()
+        self.refresh()
+
+    def _configure_layout(self):
+        size=self.display.logical_size
+        if size==self._layout_size:return
+        self._layout_size=size;ui.canvas_size=size
+        self.screen=RenderCanvas(size)
+        self.courtyard.layout(size)
+        self.pan=None;self.drag=None
+        if self.page:self.refresh()
+
+    def bottom_pos(self,pos):
+        x=(self.screen.get_width()-1280)//2;y=self.screen.get_height()-860
+        return (pos[0]-x,pos[1]-y) if pygame.Rect(x,704+y,1280,156).collidepoint(pos) else (-10000,-10000)
 
     def act(self, action, **kwargs):
         try:
@@ -99,6 +153,7 @@ class ManorApp:
                 actor.y = self.ui_rng.uniform(courtyard.ACTIVITY.top+30, courtyard.ACTIVITY.bottom-10)
                 self.actors[p.pet_id] = actor
             actor.sync_from_pet(p, self.game.now)
+            actor.appearance = pet_variant(p.pet_id,self.game.meta)
             order.append(actor)
         self.actor_order = order
         self.pet_hits = [(self.courtyard.local_rect(a.hit_rect()), a.pet_id) for a in order]
@@ -221,7 +276,7 @@ class ManorApp:
     def _handle_click(self, pos):
         if self.hud.handle(pos):
             return True
-        item = self.bottom.food_at(pos)
+        item = self.bottom.food_at(self.bottom_pos(pos))
         if item is not None:
             if self.game.inventory.count(item) <= 0:
                 self.notify(f"喂食盘里没有{item}了")
@@ -230,8 +285,9 @@ class ManorApp:
             else:
                 self.drag = {"item": item, "pos": pos}
             return True
-        if self.bottom.handle(pos):
+        if self.bottom.handle(self.bottom_pos(pos)):
             return True
+        if not self.courtyard.viewport.collidepoint(pos):return False
         if self.courtyard.fixed_click(pos):
             return True
         if self.courtyard.legend_rect.collidepoint(pos):
@@ -315,10 +371,12 @@ class ManorApp:
     def _interactive_at(self, pos):
         if self.drag:
             return True
-        if self.modal:
+        if self.modal and (not self.modal.is_side or self.modal.rect.collidepoint(pos)):
             if isinstance(self.modal, hud.ManorMapOverlay):
                 return any(rect.collidepoint(pos) for rect, _ in self.modal.hotspots)
-            return False
+            return any(b.enabled and b.rect.move(self.modal.offset()).collidepoint(pos) for b in self.modal.buttons) or self.modal.close.rect.collidepoint(pos) or bool(self.modal.back and self.modal.back.rect.collidepoint(pos))
+        if self.notification_button.rect.collidepoint(pos):
+            return True
         if self.menu_open:
             return self.more_menu.rect.collidepoint(pos)
         if (self.hud.mode_button.rect.collidepoint(pos) or self.hud.menu_button.rect.collidepoint(pos)
@@ -326,15 +384,15 @@ class ManorApp:
             return True
         buttons = list(self.bottom.action_buttons.values())
         buttons += [self.bottom.dossier_button]+list(self.bottom.nav_buttons.values())
-        if any(b.enabled and b.rect.collidepoint(pos) for b in buttons):
+        if any(b.enabled and b.rect.collidepoint(self.bottom_pos(pos)) for b in buttons):
             return True
         for rect, item in self.bottom.food_slots:
-            if rect.collidepoint(pos) and self.game.inventory.count(item) > 0:
+            if rect.collidepoint(self.bottom_pos(pos)) and self.game.inventory.count(item) > 0:
                 return True
         return bool(self.courtyard.hoverable(pos, self.actor_order))
 
     def _update_cursor(self):
-        hand = self._interactive_at(pygame.mouse.get_pos())
+        hand = self._interactive_at(ui.pointer())
         if hand == self.cursor_hand:
             return
         self.cursor_hand = hand
@@ -344,13 +402,16 @@ class ManorApp:
             pass
 
     def open(self, key, args=None, push=True):
+        if key=='decorations':
+            self.decorator.enter()
+            return
         if key=='build':
             self.builder.enter()
             return
         self.pan = None
         self.drag = None
         self.menu_open = False
-        if push and self.page:
+        if push and self.page and not (self.modal.is_side and key in ('pet','building','town_building','notifications')):
             self.history.append((self.page, self.modal.scroll if self.modal else 0))
         self.page = (key, args or {})
         self._build_modal()
@@ -391,10 +452,86 @@ class ManorApp:
                   "message": args.get("title", "提示"), "order_pet": "选择交付宠物",
                   "today": "今日小镇", "map": "小镇全景地图", "town":"小镇经营总览", "zone":"街区经营", "person":"行人档案",
                   "buy_pet": "选择伙伴性别", "medical": "宠物医院 / 诊断与治疗",
-                  "sanitation":"农场卫生 / 管理员"}
+                  "sanitation":"农场卫生 / 管理员", 'settings':'显示与字号', 'notifications':'通知中心', 'appearance':'选择动物外观',
+                  'care':'批量照护','dashboard':'经营与关注'}
         titles['town_building']='小镇建筑详情'
-        self.modal = ui.Modal(titles[key], self.fonts, self.close_modal, self.back if self.history else None)
+        panel = ui.SidePanel if key in ('pet','building','town_building','notifications') else ui.Modal
+        self.modal = panel(titles[key], self.fonts, self.close_modal, self.back if self.history else None)
         getattr(self, "_page_"+key)(**args)
+        self.modal.layout()
+
+    def _page_settings(self):
+        m = self.modal
+        m.heading('窗口显示')
+        m.text('大窗口会展示更多场景，按钮保持合适大小；小窗口自动缩小界面。支持系统最大化。', ui.MUTED)
+        m.row([('1280 × 860',lambda:self.set_window_size((1280,860))),
+               ('1600 × 1000',lambda:self.set_window_size((1600,1000))),
+               ('1920 × 1080',lambda:self.set_window_size((1920,1080)))])
+        m.row([('退出全屏 F11' if self.display.fullscreen else '进入全屏 F11',self.toggle_fullscreen)])
+        m.heading('正文与面板按钮字号')
+        m.text('放大正文后，详情会重新换行，较长内容可滚动查看。',ui.MUTED)
+        m.row([(label+(' · 已选' if self.display.font_scale==scale else ''),lambda value=scale:self.set_font_scale(value))
+               for label,scale in (('标准 100%',1.0),('较大 115%',1.15),('大号 130%',1.3))])
+        m.heading('快捷键')
+        m.text('F10 显示设置 · F11 / Alt+Enter 全屏 · N 通知中心 · Esc 关闭当前面板',ui.MUTED)
+
+    def _page_notifications(self):
+        m = self.modal
+        pending = [e for e in self.game.events if e['status']=='待处理']
+        m.heading(f'待处理事件 · {len(pending)}')
+        if not pending:
+            m.text('暂无待处理事件。',ui.MUTED)
+        for entry in pending:
+            m.text(entry['text'],size=16)
+            m.row([('查看并选择',lambda eid=entry['event_id']:self.open('event',{'event_id':eid}))])
+        m.heading('消息记录')
+        if not self.notifications:
+            m.text('施工完成、成就与操作结果会显示在这里。',ui.MUTED)
+        for entry in reversed(self.notifications):
+            entry['read'] = True
+            m.text(utc_text(entry['ts'])[11:16]+'  '+entry['text'],size=16)
+            m.gap(8)
+
+    def _page_care(self):
+        m,g=self.modal,self.game
+        m.text('优先照顾饥饿或不洁的伙伴；已经吃饱或干净、资源不足、寄养中或条件不满足的伙伴会跳过。',ui.MUTED)
+        for label,kind in (('批量收取成熟产物','collect'),('批量喂食（不使用腐败物）','feed'),('批量洗澡','bath'),('批量互动','play')):
+            available=sum(not action_reason(g,p,kind,batch=True) for p in g.living)
+            m.heading(label)
+            m.row([(f'开始 · 当前条件可操作 {available} 只',lambda k=kind:self.act('batch_care',kind=k),available>0,ui.GREEN,'primary')])
+            for p in g.living:
+                reason=action_reason(g,p,kind,batch=True)
+                if reason:m.text(p.name+' · '+reason,ui.MUTED,15)
+
+    def _focus_attention(self,page,args):
+        g=self.game
+        if page=='pet':
+            p=g.pets[args['pet_id']];self.focus_pet_id=p.pet_id;self._sync_actors()
+            actor=self.actors.get(p.pet_id)
+            if actor:self.courtyard.camera.center(self.courtyard.local_to_world((actor.x,actor.y)))
+        elif page=='town_building':
+            b=next(b for b in g.town_buildings if b['building_id']==args['building_id'])
+            self.courtyard.camera.center(((b['cx']+b['w']/2)*48,(b['cy']+b['h']/2)*48))
+        elif page=='zone':self.courtyard.focus_zone(args['zone_id'])
+        self.open(page,args)
+
+    def _page_dashboard(self):
+        m,g=self.modal,self.game
+        rows=g.meta.get('finance_ledger',[])
+        today=[row for row in rows if row['ts']>=g.now-C.DAY]
+        income=sum(max(0,r['delta']) for r in today);expense=-sum(min(0,r['delta']) for r in today)
+        m.stats([('近24小时收入',str(income),'金币',ui.GREEN),('近24小时支出',str(expense),'金币',ui.GOLD),
+                 ('净变化',f'{income-expense:+d}','金币',ui.GREEN if income>=expense else ui.RED)])
+        m.heading('需要关注 · 点击定位')
+        attention=attention_items(g)
+        if not attention:m.notice('目前经营状态良好，暂无待处理事项。')
+        for label,page,args in attention:
+            m.row([(label,lambda p=page,a=args:self._focus_attention(p,a))])
+        m.row([('批量收取与照护',lambda:self.open('care')),('自由装饰 D',self.decorator.enter)])
+        m.heading('收支明细 · 最近100笔')
+        if not rows:m.text('从当前版本开始记录收支，旧版历史不会补记。',ui.MUTED)
+        for row in reversed(rows[-100:]):
+            m.text(f"{utc_text(row['ts'])[5:16]}  {row['delta']:+d}金币 · 余额{row['balance']} · {row['reason']}",ui.GREEN if row['delta']>0 else ui.GOLD,16)
 
     def _confirm(self, text, action, **kwargs):
         self.open("confirm", {"text": text, "action": action, "params": kwargs})
@@ -416,6 +553,7 @@ class ManorApp:
 
     def _page_pets(self):
         m, g = self.modal, self.game
+        m.row([('批量收取与照护',lambda:self.open('care')),('经营与关注',lambda:self.open('dashboard'))])
         m.text(f"当前 {len(g.living)} / {C.PET_LIMIT} 只伙伴。点击档案可喂食、互动、繁育与寄养。", ui.MUTED)
         for p in sorted(g.living, key=lambda p: (not p.unwell, p.hunger)):
             m.heading(self._pet_summary(p))
@@ -431,7 +569,24 @@ class ManorApp:
         if not p:
             m.text("档案不存在")
             return
-        m.custom(150, lambda surface, rect, pet=p: self._pet_banner(surface, rect, pet))
+        m.custom(112 if m.is_side else 150, lambda surface, rect, pet=p: self._pet_banner(surface, rect, pet))
+        for label, attr in (("健康", "health"), ("饱食", "hunger"), ("开心", "happy"), ("清洁", "cleanliness"), ("好感", "favor")):
+            m.bar(label, getattr(p, attr))
+        if p.active:
+            enabled = not p.fostered
+            m.row([("喂食", lambda: self.open("feed", {"pet_id": pet_id}), not action_reason(g,p,'feed')),
+                   ("洗澡 / 水+沐浴露", lambda: self.act("bath", pet_id=pet_id), not action_reason(g,p,'bath')),
+                   ("抚摸互动", lambda: self.act("play", pet_id=pet_id), not action_reason(g,p,'play')),
+                   ("送医 / 诊断与治疗", lambda: self.open("medical",{"pet_id":pet_id}), not action_reason(g,p,'treat'))])
+            m.row([('选择外观',lambda:self.open('appearance',{'pet_id':pet_id})),
+                   ('收取产物',lambda:self.act('collect',pet_id=pet_id),not action_reason(g,p,'collect'))])
+        m.heading('状态与照护')
+        m.text('个体外观：'+style_description(p.species,pet_variant(p.pet_id,g.meta)),ui.GREEN,16)
+        actor=self.actors.get(pet_id)
+        if actor:m.text('正在：'+actor.behavior_note,ui.MUTED,16)
+        for label,action in (('喂食','feed'),('洗澡','bath'),('互动','play'),('收取','collect')):
+            reason=action_reason(g,p,action)
+            if reason:m.text(label+' · '+reason,ui.MUTED,14)
         m.text(f"状态：{p.status} | 预期寿命：{p.lifespan_max/C.DAY:g}天"
                f" | 繁育冷却：{remaining(p.breed_ready_ts, g.now)}"
                f" | 互动冷却：{remaining(p.interact_ready_ts, g.now)}", ui.MUTED)
@@ -454,8 +609,6 @@ class ManorApp:
             m.text(f"母亲：{g.pets[p.mother_id].name} / 父亲：{g.pets[p.father_id].name}",ui.MUTED)
         if p.unwell:
             m.text(f"诊断：{p.disease or '无疾病'} / 伤势：{p.injury:.1f} / 持续影响健康，需要送医。",ui.RED)
-        for label, attr in (("健康", "health"), ("饱食", "hunger"), ("开心", "happy"), ("清洁", "cleanliness"), ("好感", "favor")):
-            m.bar(label, getattr(p, attr))
         if p.active:
             b = g.buildings[p.building_id]
             if p.fostered:
@@ -463,10 +616,6 @@ class ManorApp:
             elif b.kind not in (C.SPECIES[p.species]["building"], "宠物医院", "游乐区"):
                 m.text("居所不适配，属性衰减和生病风险提高。", ui.RED)
             enabled = not p.fostered
-            m.row([("喂食", lambda: self.open("feed", {"pet_id": pet_id}), enabled),
-                   ("洗澡 / 水+沐浴露", lambda: self.act("bath", pet_id=pet_id), enabled),
-                   ("抚摸互动", lambda: self.act("play", pet_id=pet_id), enabled),
-                   ("送医 / 诊断与治疗", lambda: self.open("medical",{"pet_id":pet_id}), enabled and p.unwell)])
             m.row([("改名", lambda: self.open("rename", {"pet_id": pet_id})),
                    ("迁移 / 寄养 / 接回", lambda: self.open("move", {"pet_id": pet_id})),
                    (f"繁育 / {C.BREED_COST}金币+物资", lambda: self.open("breed", {"pet_id": pet_id}), enabled),
@@ -489,8 +638,18 @@ class ManorApp:
         g, f = self.game, self.fonts
         stage = p.stage(g.now)
         art.clay_panel(surface, rect, (244, 235, 217), 16, (222, 208, 184), shadow_alpha=10)
+        if rect.width < 600:
+            sprite = self.renderer.portrait(p.species, stage, p.rare, p.unwell, height=102,appearance=pet_variant(p.pet_id,g.meta))
+            surface.blit(sprite, sprite.get_rect(midbottom=(rect.right-58,rect.bottom-4)))
+            size = 24
+            while f.get(size).size(p.name)[0] > rect.width-150 and size>14:
+                size -= 1
+            f.text(surface, p.name+(' ★' if p.rare else ''), (rect.x+16,rect.y+10),size,ui.GREEN)
+            f.text(surface,f'{p.species} · {p.sex} · {stage} · {p.personality}',(rect.x+16,rect.y+46),14,ui.TEXT)
+            f.text(surface,f'{p.age_text(g.now)} · 地块{p.building_id+1}',(rect.x+16,rect.y+73),14,ui.MUTED)
+            return
         art.draw_glow(surface, (rect.right-96, rect.centery+14), 78, (255, 238, 202), 55)
-        sprite = self.renderer.portrait(p.species, stage, p.rare, p.unwell, height=136)
+        sprite = self.renderer.portrait(p.species, stage, p.rare, p.unwell, height=136,appearance=pet_variant(p.pet_id,g.meta))
         surface.blit(sprite, sprite.get_rect(midbottom=(rect.right-96, rect.bottom-6)))
         size = 30
         while f.get(size).size(p.name)[0] > rect.width-250 and size > 18:
@@ -656,26 +815,85 @@ class ManorApp:
         for p in g.living:
             m.row([(f"{p.name} · {p.stage(g.now)} · {g.pet_price(p)}金币 · 查看档案出售", lambda pid=p.pet_id: self.open("pet", {"pet_id": pid}))])
 
-    def _draw_shop_pet(self, surface, rect, species):
+    def _draw_shop_pet(self, surface, rect, species, appearance=0):
         spec, f = C.SPECIES[species], self.fonts
-        portrait = self.renderer.portrait(species, "幼崽", height=92)
+        portrait = self.renderer.portrait(species, "幼崽", height=92,appearance=appearance)
         surface.blit(portrait, portrait.get_rect(midbottom=(rect.x+48, rect.bottom)))
         x = rect.x+112
         f.text(surface, f"{species} · {self.game.pet_buy_price(species)}金币", (x, rect.y+3), 22, ui.GREEN)
         f.text(surface, f"居所：{spec['building']}   标准寿命：{spec['life']/C.DAY:g}天", (x, rect.y+38), 17, ui.TEXT)
         f.text(surface, f"成年产物：{spec['product']} / 每{spec['interval']/C.HOUR:g}小时   在养：{sum(p.species == species for p in self.game.living)}只", (x, rect.y+68), 16, ui.MUTED)
 
-    def _page_buy_pet(self, species, egg=False):
+    def _page_appearance(self, pet_id=None, variant=None, egg=False, species='兔子'):
         m,g = self.modal,self.game
-        price = g.pet_buy_price(species,egg)
-        m.custom(100,lambda surface,rect:self._draw_shop_pet(surface,rect,species))
-        m.text(f"选择{'孵化' if egg else '购买'}性别，每只{price}金币。购买后从零岁成长，性别永久记录在档案。",ui.GOLD)
-        m.row([("购买雌性（母）",lambda:self._buy_selected(species,egg,"雌")),
-               ("购买雄性（公）",lambda:self._buy_selected(species,egg,"雄"))])
+        p = g.pets.get(pet_id) if pet_id else None
+        if pet_id and (not p or not p.active):
+            m.text('这只伙伴暂时不能修改外观。',ui.MUTED)
+            return
+        species=p.species if p else species
+        value = variant if variant is not None else (pet_variant(pet_id,g.meta) if p else 0)
+        coat,pattern,ears,tuft = value%8,value//8%4,value//32%3,value//96%4
+        def choose(selected):
+            scroll = self.modal.scroll
+            self.page = ('appearance',{'pet_id':pet_id,'variant':selected,'egg':egg,'species':species})
+            self._build_modal()
+            self.modal.scroll = min(scroll,self.modal.max_scroll)
+        def preview(surface,rect):
+            pygame.draw.rect(surface,ui.PANEL_LIGHT,rect,border_radius=12)
+            sprite = self.renderer.portrait(species,p.stage(g.now) if p else '幼崽',
+                                            p.rare if p else False,p.unwell if p else False,
+                                            height=144,appearance=value)
+            surface.blit(sprite,sprite.get_rect(midbottom=(rect.x+90,rect.bottom-6)))
+            self.fonts.text(surface,p.name if p else '新伙伴预览',(rect.x+200,rect.y+30),25,ui.GREEN)
+            self.fonts.text(surface,style_description(species,value),(rect.x+200,rect.y+80),18,ui.TEXT)
+        m.custom(154,preview)
+        for label,names,step in style_groups(species):
+            current=value//step%len(names)
+            m.text(label,ui.GREEN,16)
+            if step==1:
+                m.choices(names,current,lambda i:self.renderer.portrait(species,'幼崽',height=68,appearance=value+(i-current)*step),
+                          lambda i,c=current,s=step:choose(value+(i-c)*s))
+            else:
+                m.row([(name+(' · 已选' if i==current else ''),lambda v=value+(i-current)*step:choose(v),True,ui.GREEN,
+                        'primary' if i==current else 'secondary') for i,name in enumerate(names)])
+        favorites=g.meta.get('style_favorites',{}).get(species,[])
+        m.row([('取消收藏' if value in favorites else '收藏此样式',lambda:self.act('favorite_style',species=species,variant=value)),
+               ('恢复原样',lambda:(self.act('reset_appearance',pet_id=pet_id) and self.back()) if p else choose(0))])
+        if favorites:
+            m.text('收藏预设',ui.GREEN,16)
+            m.choices([f'收藏 {i+1}' for i in range(len(favorites))],favorites.index(value) if value in favorites else -1,
+                      lambda i:self.renderer.portrait(species,'幼崽',height=68,appearance=favorites[i]),lambda i:choose(favorites[i]))
+        m.text('修改免费；只改变外观，稀有属性、健康和成长保持原有规则。保存后场景与头像同步更新。',ui.MUTED,16)
+        def apply():
+            if p:
+                if self.act('pet_appearance',pet_id=pet_id,variant=value):
+                    self.back()
+            else:
+                self.back()
+                self.open('buy_pet',{'species':species,'egg':egg,'appearance':value},push=False)
+        m.row([('保存外观' if p else '使用此样式',apply,True,ui.GREEN,'primary'),('取消',self.back)])
 
-    def _buy_selected(self, species, egg, sex):
+    def _page_buy_pet(self, species, egg=False, appearance=None):
+        m,g = self.modal,self.game
+        if appearance is None:
+            appearance = 0
+        price = g.pet_buy_price(species,egg)
+        m.custom(100,lambda surface,rect:self._draw_shop_pet(surface,rect,species,appearance or 0))
+        m.text('外观：'+style_description(species,appearance),ui.GREEN)
+        def choose(value):
+            self.page=('buy_pet',{'species':species,'egg':egg,'appearance':value})
+            self._build_modal()
+        m.choices(style_groups(species)[0][1],appearance%8,
+                  lambda i:self.renderer.portrait(species,'幼崽',height=68,appearance=appearance-appearance%8+i),
+                  lambda i:choose(appearance-appearance%8+i))
+        m.row([(f'选择{species}外观',lambda:self.open('appearance',{'variant':appearance,'egg':egg,'species':species}))])
+        m.text(f"选择{'孵化' if egg else '购买'}性别，每只{price}金币。购买后从零岁成长，性别永久记录在档案。",ui.GOLD)
+        m.row([("购买雌性（母）",lambda:self._buy_selected(species,egg,"雌",appearance)),
+               ("购买雄性（公）",lambda:self._buy_selected(species,egg,"雄",appearance))])
+
+    def _buy_selected(self, species, egg, sex, appearance=None):
         try:
-            message = self.game.perform("buy_pet",species=species,egg=egg,sex=sex)
+            message = self.game.perform("buy_pet",species=species,egg=egg,sex=sex,appearance=appearance)
         except (GameError,SaveError) as exc:
             self.notify(str(exc))
             return
@@ -709,37 +927,42 @@ class ManorApp:
         quantity = sum(w["quantity"] for w in piles)
         all_quantity = service.quantity()
         stale = sum(w["quantity"] for w in g.waste if g.now-w["created_ts"] >= C.WASTE_UNSAFE_AFTER)
-        m.heading(f"地面粪便 {all_quantity}份 / 陈旧积污 {stale}份")
-        m.text(f"宠物默认每{C.EXCRETION_INTERVAL/C.HOUR:g}游戏小时排泄一次。积留{C.WASTE_UNSAFE_AFTER/C.HOUR:g}小时后提高所在居所患病风险，并加快清洁下降。",ui.MUTED)
-        m.text(f"仓库 {g.inventory.used}/{g.storage_capacity} / 已收集粪便 {g.inventory.count('粪便')}份 / 售价{C.ITEMS['粪便']['sell']}金币/份",ui.GOLD)
-        m.heading(f"农场管理员{C.MANAGER_NAME} / {service.status()}")
-        m.text(f"招聘{C.MANAGER_HIRE_COST}金币；每{C.MANAGER_WAGE_INTERVAL/C.HOUR:g}游戏小时工资{C.MANAGER_WAGE}金币。自动收集地面粪便入库，不会自动出售、喂食或治疗。",ui.MUTED)
-        m.text(f"累计清扫{g.meta['manager_cleaned']}份。仓库满会暂停收集；工资不足会停工。管理员会在庭院走动并挥动扫帚。",ui.MUTED)
+        m.stats([
+            ('地面粪便', f'{all_quantity} 份', '待清扫或就地出售', ui.GREEN),
+            ('陈旧积污', f'{stale} 份', f'积留 {C.WASTE_UNSAFE_AFTER/C.HOUR:g} 小时后影响健康', ui.RED if stale else ui.GREEN),
+            ('仓库容量', f'{g.inventory.used} / {g.storage_capacity}', '收集粪便会占用仓容', ui.GOLD),
+            ('已收集粪便', f"{g.inventory.count('粪便')} 份", f"出售单价 {C.ITEMS['粪便']['sell']} 金币 / 份", ui.GOLD),
+        ])
+        m.text(f"排泄周期 {C.EXCRETION_INTERVAL/C.HOUR:g} 游戏小时 · 陈旧积污会提高居所患病风险，并加快清洁下降。",ui.MUTED,16)
+        m.heading(f"农场管理员 · {C.MANAGER_NAME}    {service.status()}")
+        m.text(f"招聘 {C.MANAGER_HIRE_COST} 金币    ·    工资 {C.MANAGER_WAGE} 金币 / {C.MANAGER_WAGE_INTERVAL/C.HOUR:g} 游戏小时    ·    累计清扫 {g.meta['manager_cleaned']} 份",ui.MUTED,16)
+        m.text("自动清扫并收集入库；仓库满时暂停收集，工资不足时停工。",ui.MUTED,16)
         if g.meta["farm_manager"]:
-            m.text("下次发薪："+remaining(g.meta["manager_next_wage_ts"],g.now),ui.MUTED)
+            m.text("下次发薪  "+remaining(g.meta["manager_next_wage_ts"],g.now),ui.GREEN,16)
         job = g.meta["manager_job"]
         if job:
             m.text(f"正在处理地块{job['building_id']+1}的粪便 / 剩余{max(0,int(job['end_ts']-g.now))}游戏秒",ui.GREEN)
-        m.row([("解雇农场管理员" if g.meta["farm_manager"] else f"雇佣农场管理员 / {C.MANAGER_HIRE_COST}金币",lambda:self.act("farm_manager"))])
+        m.gap(6)
+        m.row([("解雇农场管理员" if g.meta["farm_manager"] else f"雇佣农场管理员 · {C.MANAGER_HIRE_COST} 金币",lambda:self.act("farm_manager"), True, ui.RED if g.meta['farm_manager'] else ui.GREEN, 'secondary' if g.meta['farm_manager'] else 'primary')])
         m.heading("手动清理与销售")
         if waste_id:
             m.text("选中的粪便已经被清理。" if not piles else f"选中地块{piles[0]['building_id']+1}的粪便 {quantity}份。",ui.MUTED)
         elif building_id is not None:
             m.text(f"当前地块{building_id+1}：{quantity}份粪便。",ui.MUTED)
         else:
-            m.text(f"当前选择全场：{quantity}份粪便。",ui.MUTED)
+            m.text(f"当前范围：全场    ·    待处理 {quantity} 份",ui.MUTED,16)
         params = {"waste_id":waste_id,"building_id":building_id}
-        m.row([(f"清扫收集{quantity}份（占仓容）",lambda:self.act("clean_waste",**params),quantity > 0),
+        m.row([(f"清扫收集 {quantity} 份（占仓容）",lambda:self.act("clean_waste",**params),quantity > 0,ui.GREEN,'primary'),
                (f"就地出售{quantity}份 / {quantity*C.ITEMS['粪便']['sell']}金币",lambda:self.act("sell_waste",**params),quantity > 0)])
         m.row([("出售仓库全部粪便",lambda:self.act("sell_manure"),g.inventory.count("粪便") > 0),
                ("查看全场卫生",lambda:self.open("sanitation"))])
         if not piles:
-            m.text("当前地面干净，仍可雇佣管理员巡查。",ui.GREEN)
+            m.notice("地面很干净，暂无需要清理的粪便。管理员可继续巡查。")
         for bid in sorted({w["building_id"] for w in piles}):
             info = service.exposure(bid)
             m.heading(f"地块{bid+1} / 粪便{info['total']}份 / 陈旧{info['stale']}份")
             m.text(f"环境患病倍率×{info['hazard']:.1f}，每游戏小时额外清洁衰减{info['dirt']:.2f}",ui.RED if info["stale"] else ui.MUTED)
-        m.text("饲养员负责给宠物喂食和日常清洁；农场管理员专职清扫地面，两者独立雇佣。",ui.MUTED)
+        m.text("服务说明 · 管理员仅负责地面清扫；喂食和日常清洁由独立雇佣的饲养员负责，治疗需前往医院。",ui.MUTED,14)
 
     def _page_craft(self):
         m = self.modal
@@ -971,8 +1194,11 @@ class ManorApp:
         m.heading(spec['name']+' / '+K.FAMILIES[spec['family']]+' / '+spec['category'])
         def portrait(s,r):
             sprite=town_view.town_art.building_sprite(b['catalog_key'],b['orientation'],self.courtyard.light,g.season,g.weather.current,3 if b['status']=='building' else 4)
+            factor = min(1, (r.w-16)/sprite.get_width(), (r.h-16)/sprite.get_height())
+            if factor < 1:
+                sprite = pygame.transform.smoothscale(sprite,(max(1,round(sprite.get_width()*factor)),max(1,round(sprite.get_height()*factor))))
             s.blit(sprite,sprite.get_rect(midbottom=(r.centerx,r.bottom-8)))
-        m.custom(290,portrait)
+        m.custom(190 if m.is_side else 290,portrait)
         m.text(f"{b['w']}×{b['h']}格 / 状态：{state} / {'道路通达' if connected else '道路中断，收益暂停'}",ui.GREEN if connected else ui.RED)
         if b['status']=='building':
             m.text('距完工：'+remaining(b['finish_ts'],g.now)+'（游戏时间）',ui.GOLD)
@@ -1014,67 +1240,136 @@ class ManorApp:
     def _draw_toast(self, surface):
         lines = self.fonts.wrap(self.toast, 1060, 17)[:3]
         height = len(lines)*24+16
-        rect = pygame.Rect(64, 696-height, 1152, height)
+        rect = pygame.Rect(64, self.screen.get_height()-164-height, 1152, height)
         art.clay_panel(surface, rect, (255, 251, 242), 12, ui.GREEN, shadow_alpha=55)
         pygame.draw.rect(surface, ui.GOLD, (rect.x+12, rect.y+9, 4, rect.height-18), border_radius=2)
         for i, line in enumerate(lines):
             self.fonts.text(surface, line, (rect.x+26, rect.y+8+i*24), 17, ui.TEXT)
 
     def draw(self):
+        self._configure_layout()
         s, g = self.screen, self.game
+        s.begin(self.display.viewport.w>s.get_width())
         s.fill(ui.BG)
         self.courtyard.draw(s, g, self.actor_order, self.focus_pet_id,
                             drag_item=self.drag["item"] if self.drag else None,
                             feed_count=self._feed_count())
-        self.hud.draw(s, g)
+        self.chrome.begin(False)
+        self.hud.draw(self.chrome,g)
+        pygame.draw.rect(s,ui.PANEL,(0,0,s.get_width(),88))
+        s.blit(self.chrome,(0,0),(0,0,1280,88))
+        pending = sum(e['status']=='待处理' for e in g.events)
+        unread = sum(not entry['read'] for entry in self.notifications)
+        self.notification_button.label = f'通知 {pending+unread}' if pending+unread else '通知 N'
+        self.notification_button.draw(s,self.fonts)
         if self.builder.active:
             self.builder.draw(s)
         else:
-            self.bottom.draw(s, g, self._focus_pet())
+            ui.pointer_transform=self.bottom_pos
+            try:self.bottom.draw(self.chrome, g, self._focus_pet())
+            finally:ui.pointer_transform=None
+            pygame.draw.rect(s,ui.PANEL,(0,s.get_height()-156,s.get_width(),156))
+            s.blit(self.chrome,((s.get_width()-1280)//2,s.get_height()-156),(0,704,1280,156))
+        if self.decorator.active:self.decorator.draw(s)
         # 弹窗打开时不显示提示条，避免遮挡档案与地图内容。
-        if self.toast and not self.modal and time.monotonic() < self.toast_until:
-            self._draw_toast(s)
-        if self.menu_open:
-            self.more_menu.draw(s, g)
+        if self.toast and (not self.modal or self.modal.is_side) and time.monotonic() < self.toast_until:
+            if self.modal and self.modal.is_side:
+                rect = pygame.Rect(24, self.courtyard.viewport.bottom-78, 680, 62)
+                pygame.draw.rect(s, ui.PANEL, rect, border_radius=10)
+                for index,line in enumerate(self.fonts.wrap(self.toast,640,16)[:2]):
+                    self.fonts.text(s,line,(rect.x+16,rect.y+8+index*24),16,ui.GREEN)
+            else:
+                self._draw_toast(s)
         if self.modal:
             self.modal.draw(s)
+        if self.menu_open:
+            self.more_menu.draw(s, g)
         if self.drag:
-            pos = pygame.mouse.get_pos()
+            pos = ui.pointer()
             art.draw_glow(s, pos, 26, (255, 220, 150), 50)
             art.draw_item_icon(s, self.drag["item"], (pos[0]-18, pos[1]-18, 36, 36))
         self.pet_hits = [(self.courtyard.local_rect(actor.hit_rect()), actor.pet_id) for actor in self.actor_order]
         self._update_cursor()
-        pygame.display.flip()
+        self.display.present(s)
+
+    def handle_native(self, event):
+        """操作系统事件统一转换一次；handle 接收逻辑坐标，便于回放与测试。"""
+        if event.type == pygame.VIDEORESIZE:
+            self.display.resize(event.size)
+            self._configure_layout()
+            return
+        if event.type in (getattr(pygame,'WINDOWSIZECHANGED',-1),getattr(pygame,'WINDOWRESIZED',-2)):
+            self.display.update_viewport()
+            self._configure_layout()
+            if not self.display.fullscreen:
+                self.display.windowed_size = self.display.window.get_size()
+            return
+        if hasattr(event, 'pos'):
+            if not self.display.viewport.collidepoint(event.pos):
+                if event.type == pygame.MOUSEBUTTONUP:
+                    self.pan = None
+                    self.builder.stroke = self.builder.pan = None
+                    self._cancel_drag()
+                return
+            values = dict(event.dict)
+            values['pos'] = self.display.to_logical(event.pos)
+            if hasattr(event,'rel'):
+                values['rel'] = (event.rel[0]*self.display.logical_size[0]/self.display.viewport.w,
+                                 event.rel[1]*self.display.logical_size[1]/self.display.viewport.h)
+            event = pygame.event.Event(event.type, values)
+        self.handle(event)
 
     def handle(self, event):
         if event.type == pygame.QUIT:
             self.running = False
             return
+        if event.type == pygame.KEYDOWN:
+            if event.key == pygame.K_F11 or (event.key == pygame.K_RETURN and getattr(event,'mod',0)&pygame.KMOD_ALT):
+                self.toggle_fullscreen()
+                return
+            if event.key == pygame.K_F10:
+                self.open('settings')
+                return
+            if event.key == pygame.K_n and not (self.modal and self.modal.inputs):
+                self.open('notifications')
+                return
         if event.type == getattr(pygame, "WINDOWFOCUSLOST", -1):
             self._cancel_drag()
             self.pan = None
             self.builder.stroke=self.builder.pan=None
-            return
-        if self.modal:
-            self.modal.handle(event)
-            return
-        if event.type==pygame.KEYDOWN and event.key==pygame.K_b:
-            self.builder.toggle()
-            return
-        if self.builder.active:
-            self.builder.handle(event)
+            self.decorator.pan=None
             return
         if self.menu_open:
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-                if not self.more_menu.handle(event.pos):
+            if event.type == pygame.MOUSEBUTTONDOWN:
+                if event.button != 1 or not self.more_menu.handle(event.pos):
                     self.menu_open = False
-                return
-            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
-                self.menu_open = False
                 return
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 self.menu_open = False
                 return
+        if self.modal:
+            pos = getattr(event,'pos',ui.pointer())
+            if not self.modal.is_side or self.modal.rect.collidepoint(pos) or (event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE,pygame.K_PAGEUP,pygame.K_PAGEDOWN)):
+                if self.modal.is_side and event.type == pygame.MOUSEBUTTONUP:
+                    self.pan = None
+                    self.builder.pan = self.builder.stroke = None
+                    self._cancel_drag()
+                self.modal.handle(event)
+                return
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.notification_button.click(event.pos):
+            return
+        if event.type==pygame.KEYDOWN and event.key==pygame.K_b:
+            self.builder.toggle()
+            return
+        if event.type==pygame.KEYDOWN and event.key==pygame.K_d:
+            self.decorator.exit() if self.decorator.active else self.decorator.enter()
+            return
+        if self.decorator.active:
+            self.decorator.handle(event)
+            return
+        if self.builder.active:
+            self.builder.handle(event)
+            return
         if event.type == pygame.KEYDOWN:
             if event.key == pygame.K_ESCAPE:
                 self.pan = None
@@ -1089,8 +1384,8 @@ class ManorApp:
             if event.key == pygame.K_HOME:
                 self.courtyard.home()
                 return
-        if event.type == pygame.MOUSEWHEEL and courtyard.SCENE.collidepoint(pygame.mouse.get_pos()) and not self.drag:
-            self.courtyard.camera.zoom_at(pygame.mouse.get_pos(),1.12**event.y)
+        if event.type == pygame.MOUSEWHEEL and self.courtyard.viewport.collidepoint(ui.pointer()) and not self.drag:
+            self.courtyard.camera.zoom_at(ui.pointer(),1.12**event.y)
             return
         if event.type == pygame.MOUSEMOTION and self.pan:
             start,last = self.pan["start"],self.pan["last"]
@@ -1101,14 +1396,14 @@ class ManorApp:
                 self.courtyard.camera.pan(event.pos[0]-start[0],event.pos[1]-start[1])
             self.pan["last"] = event.pos
             return
-        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 2 and courtyard.SCENE.collidepoint(event.pos):
+        if event.type == pygame.MOUSEBUTTONDOWN and event.button == 2 and self.courtyard.viewport.collidepoint(event.pos):
             self.pan = {"start":event.pos,"last":event.pos,"moving":True,"button":2}
             return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if not self.drag:
                 view = self.courtyard
                 overlay = view.home_button.collidepoint(event.pos) or view.overview_rect.collidepoint(event.pos) or view.legend_rect.collidepoint(event.pos)
-                if courtyard.SCENE.collidepoint(event.pos) and not overlay:
+                if self.courtyard.viewport.collidepoint(event.pos) and not overlay:
                     self.pan = {"start":event.pos,"last":event.pos,"moving":False,"button":1}
                 else:
                     self._handle_click(event.pos)
@@ -1139,7 +1434,11 @@ class ManorApp:
         self.courtyard.tick(dt,self.game)
         night = courtyard.CourtyardView.light_key(self.game.now) == "night"
         for actor in self.actor_order:
-            actor.update(dt, courtyard.ACTIVITY, self.ui_rng, night)
+            companions=[(other.x,other.y) for other in self.actor_order if other is not actor]
+            companions += [self.courtyard.screen_to_local(self.courtyard.camera.world_to_screen((p.x,p.y)))
+                           for p in self.courtyard.people.values() if p.visible]
+            actor.update(dt, courtyard.ACTIVITY, self.ui_rng, night,
+                         {'food':courtyard.BOWL,'toy':courtyard.TOY,'companions':companions})
         if now-self.last_tick >= 1:
             persist = now-self.last_save >= C.SAVE_INTERVAL
             try:
@@ -1155,21 +1454,16 @@ class ManorApp:
             except SaveError as exc:
                 self.notify(str(exc))
             self.last_tick = now
-        if self.game.notices and not self.modal and not self.drag and not self.pan and not self.builder.active:
-            text = self.game.notices.pop(0)
-            self.open("message", {"title": "成就与庄园消息", "text": text})
-        if not self.modal and not self.drag and not self.pan and not self.builder.active:
-            entry = next((e for e in self.game.events if e["status"] == "待处理" and e["event_id"] not in self.modal_seen_events), None)
-            if entry:
-                self.modal_seen_events.add(entry["event_id"])
-                self.open("event", {"event_id": entry["event_id"]})
+        for text in self.game.notices[:]:
+            self.notify(text)
+        self.game.notices.clear()
 
     def run(self, frame_limit=None):
         frames = 0
         try:
             while self.running:
                 for event in pygame.event.get():
-                    self.handle(event)
+                    self.handle_native(event)
                 self.tick()
                 self.draw()
                 self.clock.tick(C.FPS)
@@ -1177,5 +1471,6 @@ class ManorApp:
                 if frame_limit and frames >= frame_limit:
                     break
         finally:
+            self._save_display()
             self.game.close()
             pygame.quit()

@@ -36,6 +36,7 @@ _ICONS = LRU(256)
 _COTTAGES = LRU(64)
 _SHADES = LRU(4)
 _MISC = LRU(128)
+_FOLIAGE = LRU(256)
 
 
 def clamp(value, low=0.0, high=1.0):
@@ -62,6 +63,34 @@ def darken(color, amount=.18):
 
 def with_alpha(color, alpha):
     return (color[0], color[1], color[2], int(alpha))
+
+
+def foliage_lobe(size,color):
+    """左上受光、下缘偏暗的柔和叶团，替代硬边高光圆斑。"""
+    w,h=max(2,int(size[0])),max(2,int(size[1]))
+    def build():
+        image=pygame.Surface((w,h),pygame.SRCALPHA)
+        shadow=mix(color,(37,65,53),.25)
+        highlight=mix(color,(237,242,193),.22)
+        pygame.draw.ellipse(image,shadow,(0,0,w,h))
+        for i in range(1,29):
+            t=i/28
+            rx,ry=w*.5*(1-.9*t),h*.5*(1-.86*t)
+            cx,cy=w*(.5-.12*t),h*(.5-.16*t)
+            pygame.draw.ellipse(image,mix(shadow,highlight,t),
+                                (round(cx-rx),round(cy-ry),max(1,round(rx*2)),max(1,round(ry*2))))
+        return image
+    return _FOLIAGE.get(((w,h),tuple(color)),build)
+
+
+def shaded_polygon(surface,points,color):
+    xs,ys=zip(*points)
+    bounds=pygame.Rect(int(min(xs)),int(min(ys)),max(2,int(max(xs)-min(xs))+1),max(2,int(max(ys)-min(ys))+1))
+    image=vertical_gradient(bounds.size,lighten(color,.12),darken(color,.17)).convert_alpha()
+    mask=pygame.Surface(bounds.size,pygame.SRCALPHA)
+    pygame.draw.polygon(mask,(255,255,255),[(round(x-bounds.x),round(y-bounds.y)) for x,y in points])
+    image.blit(mask,(0,0),special_flags=pygame.BLEND_RGBA_MULT)
+    surface.blit(image,bounds)
 
 
 def vertical_gradient(size, top, bottom):
@@ -387,20 +416,20 @@ def cottage_surface(size, kind, level=1, base_color=(195, 158, 119), winter=Fals
         wall_dark = darken(wall, .14)
         roof = darken(base_color, .10)
         wall_rect = pygame.Rect(int(W*.16), int(H*.44), int(W*.68), int(H*.42))
-        pygame.draw.rect(surface, wall, wall_rect, border_radius=int(W*.06))
+        surface.blit(rounded_gradient(wall_rect.size,lighten(wall,.06),darken(wall,.07),int(W*.06)),wall_rect)
         pygame.draw.rect(surface, wall_dark, (wall_rect.right-int(W*.16), wall_rect.y,
                                               int(W*.16), wall_rect.height),
                          border_radius=int(W*.06))
         # 屋顶
         if kind in ("鸟舍", "寄养屋"):
-            pygame.draw.ellipse(surface, roof, (int(W*.12), int(H*.26), int(W*.76), int(H*.44)))
+            surface.blit(foliage_lobe((int(W*.76),int(H*.44)),roof),(int(W*.12),int(H*.26)))
         elif kind in ("仓库", "加工坊"):
-            pygame.draw.polygon(surface, roof, [(int(W*.10), int(H*.46)), (int(W*.90), int(H*.46)),
-                                                (int(W*.86), int(H*.30)), (int(W*.14), int(H*.30))])
+            shaded_polygon(surface,[(int(W*.10), int(H*.46)), (int(W*.90), int(H*.46)),
+                                    (int(W*.86), int(H*.30)), (int(W*.14), int(H*.30))],roof)
         else:
-            pygame.draw.polygon(surface, roof, [(int(W*.08), int(H*.48)), (int(W*.50), int(H*.12)),
-                                                (int(W*.92), int(H*.48))])
-        pygame.draw.polygon(surface, lighten(roof, .10),
+            shaded_polygon(surface,[(int(W*.08), int(H*.48)), (int(W*.50), int(H*.12)),
+                                    (int(W*.92), int(H*.48))],roof)
+        pygame.draw.polygon(surface, lighten(roof, .04),
                             [(int(W*.16), int(H*.44)), (int(W*.50), int(H*.16)), (int(W*.50), int(H*.44))])
         if winter:
             pygame.draw.polygon(surface, (246, 248, 250),
@@ -411,12 +440,15 @@ def cottage_surface(size, kind, level=1, base_color=(195, 158, 119), winter=Fals
         pygame.draw.rect(surface, darken(wall, .32), door, border_radius=int(W*.03))
         window_color = (255, 214, 126) if night else (196, 226, 228)
         for cx in (.28, .70):
+            if night:draw_glow(surface,(int(W*cx),int(H*.62)),max(4,int(W*.10)),(255,207,119),65)
             pygame.draw.rect(surface, window_color,
                              (int(W*cx-W*.06), int(H*.56), int(W*.12), int(H*.12)),
                              border_radius=int(W*.02))
             pygame.draw.rect(surface, darken(wall, .24),
                              (int(W*cx-W*.06), int(H*.56), int(W*.12), int(H*.12)), 2,
                              border_radius=int(W*.02))
+            pygame.draw.line(surface,lighten(window_color,.18),(int(W*cx-W*.035),int(H*.58)),
+                             (int(W*cx+W*.025),int(H*.58)),max(1,int(W*.007)))
         # 类型标记
         if kind == "宠物医院":
             pygame.draw.rect(surface, (190, 84, 78),

@@ -43,7 +43,7 @@ class SanitationView:
             self.pile_sprite=sprite
         self.waste_hits = []
         piles = sorted(game.waste,key=lambda w:(w["created_ts"],w["waste_id"]))[:C.MAX_DRAWN_WASTE]
-        mouse = pygame.mouse.get_pos()
+        mouse = ui.pointer()
         for pile in piles:
             x,y = self.point(pile["u"],pile["v"])
             x,y = int(x),int(y)

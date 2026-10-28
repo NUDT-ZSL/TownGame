@@ -7,6 +7,8 @@ import pygame
 import art
 import game_config as C
 import ui
+from appearance import pet_variant
+from pet_services import action_reason
 from game import remaining
 
 
@@ -18,7 +20,9 @@ MENU_PAGES = (("宠物名册", "pets"), ("加工坊", "craft"), ("邻里订单",
               ("庄园商店", "shop"), ("物资仓库", "inventory"), ("回忆花园", "memorial"),
               ("农场卫生 / 管理员", "sanitation"), ("小镇经营总览", "town"), ("小镇全景地图", "map"),
               ("道路与建筑建设 B", "build"),
-              ("永久日志", "logs"), ("慢时光指南", "help"), ("今日庄园", "today"))
+              ("永久日志", "logs"), ("慢时光指南", "help"), ("今日庄园", "today"),
+              ("通知中心 N", "notifications"), ("显示与字号 F10", "settings"),
+              ('批量照护','care'),('经营与关注','dashboard'),('自由装饰 D','decorations'))
 STATUS_COLORS = {"正常": ui.GREEN, "生病": ui.RED, "受伤": ui.RED, "老年": ui.GOLD, "寄养中": (96, 132, 172)}
 
 
@@ -62,7 +66,7 @@ class TopHUD:
         f.text(surface, f"{game.meta['reputation']:,}", (544, 19), 20, ui.TEXT)
         f.text(surface, f"声望 · 小镇Lv{game.town.town_level}", (544, 44), 11, ui.MUTED)
 
-        hover = self.today_rect.collidepoint(pygame.mouse.get_pos())
+        hover = self.today_rect.collidepoint(ui.pointer())
         art.clay_panel(surface, self.today_rect, (252, 247, 235) if hover else (255, 251, 242),
                        14, ui.GREEN if hover else ui.LINE, shadow_alpha=16)
         self._sun(surface, (676, 44), game.now)
@@ -169,7 +173,7 @@ class BottomBar:
         sick = focus.unwell
         box = pygame.Rect(28, 724, 84, 84)
         art.clay_panel(surface, box, (246, 238, 222), 14, (224, 211, 190), shadow_alpha=10)
-        sprite = self.renderer.portrait(focus.species, stage, focus.rare, sick, height=74)
+        sprite = self.renderer.portrait(focus.species, stage, focus.rare, sick, height=74,appearance=pet_variant(focus.pet_id,game.meta))
         surface.blit(sprite, sprite.get_rect(midbottom=(box.centerx, box.bottom-4)))
 
         name = focus.name
@@ -214,7 +218,7 @@ class BottomBar:
             "treat": (not fostered and focus.unwell,
                       "寄养中无法看病" if fostered else "它现在很健康"),
         }
-        return states
+        return {key:(not action_reason(game,focus,key),action_reason(game,focus,key)) for key in states}
 
     def _hint(self, game, focus, states):
         if focus is None:
@@ -235,16 +239,19 @@ class BottomBar:
         for key, button in self.action_buttons.items():
             button.enabled = states[key][0]
             button.draw(surface, f)
+            if not button.enabled:
+                for i,line in enumerate(f.wrap(states[key][1],76,10)[:2]):
+                    f.text(surface,line,(button.rect.x,782+i*12),10,ui.RED)
         hint, warning = self._hint(game, focus, states)
         color = ui.GOLD if warning else ui.MUTED
-        for i, line in enumerate(f.wrap(hint, 316, 13)[:2]):
-            f.text(surface, line, (498, 788+i*17), 13, color)
+        for i, line in enumerate(f.wrap(hint, 316, 12)[:2]):
+            f.text(surface, line, (498, 817+i*15), 12, color)
 
     # ---------- 右：食物盘 ----------
     def _draw_tray(self, surface, game):
         f = self.fonts
         f.text(surface, "喂食盘", (846, 714), 13, ui.MUTED)
-        mouse = pygame.mouse.get_pos()
+        mouse = ui.pointer()
         for rect, item in self.food_slots:
             count = game.inventory.count(item)
             hover = rect.collidepoint(mouse) and count > 0
@@ -288,7 +295,7 @@ class MoreMenu:
 
     def draw(self, surface, game):
         f = self.fonts
-        mouse = pygame.mouse.get_pos()
+        mouse = ui.pointer()
         art.draw_shadow(surface, (self.rect.centerx, self.rect.bottom-6),
                         (self.rect.width-60, 36), 80, 12)
         art.clay_panel(surface, self.rect, (255, 251, 242), 18, ui.LINE, shadow_alpha=0)
@@ -326,21 +333,22 @@ class ManorMapOverlay(ui.Modal):
         super().__init__("庄园地图", fonts, on_close, on_back)
         self.game = game
         self.on_pick = on_pick
-        self.rect = pygame.Rect(80, 44, 1120, 772)
-        self.body = pygame.Rect(104, 132, 1072, 660)
+        dx,dy=(ui.canvas_size[0]-1280)//2,(ui.canvas_size[1]-860)//2
+        self.rect = pygame.Rect(80+dx, 44+dy, 1120, 772)
+        self.body = pygame.Rect(104+dx, 132+dy, 1072, 660)
         self.close.rect = pygame.Rect(self.rect.right-62, self.rect.y+18, 44, 36)
         if self.back:
             self.back.rect = pygame.Rect(self.rect.right-154, self.rect.y+18, 82, 36)
         self.hotspots = []
         for bid in sorted(game.buildings):
             col, row = bid % C.GRID_COLS, bid // C.GRID_COLS
-            x = self.ORIGIN[0]+col*(self.TILE[0]+12)
-            y = self.ORIGIN[1]+row*(self.TILE[1]+12)
+            x = self.ORIGIN[0]+dx+col*(self.TILE[0]+12)
+            y = self.ORIGIN[1]+dy+row*(self.TILE[1]+12)
             self.hotspots.append((pygame.Rect(x, y, *self.TILE), bid))
 
     def draw(self, surface):
         f = self.fonts
-        surface.blit(art.shade_surface(C.WINDOW, (28, 36, 28, 150)), (0, 0))
+        surface.blit(art.shade_surface(surface.get_size(), (28, 36, 28, 150)), (0, 0))
         art.draw_shadow(surface, (self.rect.centerx, self.rect.bottom+4),
                         (self.rect.width-40, 46), 90, 12)
         art.clay_panel(surface, self.rect, ui.PANEL, 18, ui.LINE, shadow_alpha=0)
@@ -362,7 +370,7 @@ class ManorMapOverlay(ui.Modal):
     def _tile(self, surface, bid, rect):
         f, g = self.fonts, self.game
         b = g.buildings[bid]
-        hover = rect.collidepoint(pygame.mouse.get_pos())
+        hover = rect.collidepoint(ui.pointer())
         if not b.unlocked:
             fill = (236, 229, 215)
         elif not b.kind:

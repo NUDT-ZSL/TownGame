@@ -44,7 +44,7 @@ def run():
         p.last_stage = "成年"
         g.events.append(event.create_event(g.now, 50, g.rng))
         g.save()
-        app = ManorApp(g)
+        app = ManorApp(g, settings_path=Path(folder)/'ui-settings.json')
         cleanup.callback(pygame.quit)
         # UI 动画/绘制不得消耗游戏随机数，否则会破坏存档确定性。
         rng_state = g.rng.getstate()
@@ -214,6 +214,7 @@ def run():
         assert any(kind == "text" and "伴侣：" in data[0] for _,kind,data in app.modal.blocks)
         pygame.image.save(app.screen,str(output/"relationship.png"))
         mate_button = next(b for b in app.modal.buttons if b.label == "查看伴侣档案")
+        app.modal.scroll = min(app.modal.max_scroll, max(0,mate_button.rect.y-120))
         app.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN,button=1,pos=mate_button.rect.move(app.modal.offset()).center))
         assert app.page == ("pet",{"pet_id":mother.mate_id}), "伴侣档案链接失效"
         mother.contract_illness(g.now,g.rng,"绝症")
@@ -264,7 +265,16 @@ def run():
             actor.x,actor.y = 225,660
         app.draw()
         assert hygiene.completion_until > hygiene.time, "清扫结束缺少完成动画标记"
-        waste_rect,waste_id = hygiene.waste_hits[0]
+        # 永久宠物ID会影响地面位置；选择未被宠物、车辆或界面遮挡的目标，
+        # 避免随机生成的个体恰好覆盖首个粪便时把正常的命中优先级当成失败。
+        blocked=(hygiene.sign_rect,app.courtyard.legend_rect,app.courtyard.home_button,app.courtyard.overview_rect)
+        visible_waste=[(r,ident) for r,ident in hygiene.waste_hits
+                       if app.courtyard.viewport.collidepoint(r.center)
+                       and not any(rect.collidepoint(r.center) for rect in blocked)
+                       and app.courtyard.pet_at(r.center,app.actor_order) is None
+                       and app.courtyard.vehicle_at(r.center) is None]
+        assert visible_waste, '缺少未被遮挡的清理点击目标'
+        waste_rect,waste_id = visible_waste[0]
         app.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN,button=1,pos=waste_rect.center))
         app.handle(pygame.event.Event(pygame.MOUSEBUTTONUP,button=1,pos=waste_rect.center))
         assert app.page == ("sanitation",{"waste_id":waste_id}), "点击粪便未打开清理/出售面板"

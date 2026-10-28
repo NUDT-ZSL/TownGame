@@ -3,12 +3,14 @@ import math
 import pygame
 import art
 import town_catalog as K
+from appearance import identity_seed
+from render_canvas import Glyph
 from town_grid import GRID_SIZE as S, cell_center, DIRECTIONS,PORTALS
 
 _BUILDINGS=art.LRU(192)
 _CARS=art.LRU(256)
 _TILES=art.LRU(384)
-_PEOPLE=art.LRU(192)
+_PEOPLE=art.LRU(768)
 
 
 class _Canvas2x:
@@ -55,23 +57,81 @@ class _Draw:
 _draw=_Draw()
 
 
-def person_sprite(color_index,visitor,umbrella,frame):
+def person_sprite(color_index,visitor,umbrella,frame,appearance_id='',facing=1):
+    seed = identity_seed(appearance_id or str(color_index),'person')
+    hair_style, outfit, accessory = seed%6, seed//6%4, seed//24%6
+    facing = 1 if facing>=0 else -1
     def build():
-        s=pygame.Surface((72,106),pygame.SRCALPHA); x,y=33,96
-        colors=((115,155,169),(185,133,136),(145,167,122),(188,155,105),(156,143,183),(119,169,158))
+        canvas=_Canvas2x((72,106)); s=canvas; x,y=33,96
+        colors=((111,151,173),(189,125,139),(139,165,111),(203,156,91),(155,132,181),(98,163,153))
+        skin=((241,204,170),(220,173,132),(181,130,94),(147,103,77),(249,221,191))[seed//144%5]
+        hair=((75,58,48),(116,77,50),(50,47,45),(162,120,77),(178,175,164))[seed//720%5]
+        shirt=colors[color_index%len(colors)]
+        pants=((76,91,104),(100,91,80),(78,107,89),(119,100,123))[seed//3600%4]
+        stature=(-4,0,4)[seed//14400%3]; broad=(-1,1,3)[seed//43200%3]
+        hip=y-17; top=y-38-stature; head_y=top-11
         walk=math.sin(frame*math.pi/2)*3 if frame>=0 else 0
-        art.draw_shadow(s,(x,y),(25,8),38,3)
-        for sign in (-1,1): _draw.line(s,(88,99,99),(x+sign*5,y-14),(int(x+sign*(5+walk)),y-1),5)
-        _draw.rect(s,colors[color_index],(x-10,y-35,21,24),border_radius=7)
-        _draw.circle(s,(237,201,166),(x,y-42),10)
-        _draw.arc(s,(107,84,65),(x-10,y-54,21,21),0,math.pi,5)
-        _draw.circle(s,(65,60,52),(x+4,y-42),1)
-        if visitor: _draw.rect(s,(209,179,118),(x-16,y-29,9,14),border_radius=3)
+        art.draw_shadow(canvas.surface,(x*2,y*2),(50,16),38,6)
+        if hair_style in (2,3):
+            _draw.rect(s,hair,(x-12,head_y-9,24,26),border_radius=8)
+        for sign in (-1,1):
+            foot=int(x+sign*(5+walk))
+            _draw.line(s,pants,(x+sign*5,hip),(foot,y-3),5)
+            _draw.ellipse(s,(77,64,54),(foot-3,y-5,8,5))
+        _draw.rect(s,shirt,(x-10-broad,top,21+broad*2,hip-top+4),border_radius=7)
+        if outfit==1:
+            _draw.polygon(s,art.darken(shirt,.12),[(x-9,top+10),(x+9,top+10),(x+15,hip+5),(x-15,hip+5)])
+        elif outfit==2:
+            _draw.rect(s,art.lighten(shirt,.35),(x-4,top+1,8,hip-top+2),border_radius=2)
+            _draw.line(s,(232,217,185),(x,top+3),(x,hip),1)
+        elif outfit==3:
+            for offset in (7,12,17):
+                _draw.line(s,art.lighten(shirt,.38),(x-8-broad,top+offset),(x+8+broad,top+offset),2)
+        for sign in (-1,1):
+            ax=x+sign*(11+broad)
+            _draw.line(s,shirt,(ax,top+7),(int(ax-sign*walk*.55),hip-2),5)
+            _draw.circle(s,skin,(int(ax-sign*walk*.55),hip-1),2)
+        _draw.circle(s,skin,(x,head_y),10)
+        if hair_style==0:  # 短发与侧分
+            _draw.arc(s,hair,(x-11,head_y-12,22,21),0,math.pi,6)
+            _draw.line(s,hair,(x-7,head_y-6),(x+3,head_y-10),5)
+        elif hair_style==1:  # 卷发
+            for dx,dy in ((-8,-6),(-5,-10),(0,-12),(6,-10),(9,-5)):
+                _draw.circle(s,hair,(x+dx,head_y+dy),5)
+        elif hair_style in (2,3):
+            _draw.arc(s,hair,(x-11,head_y-12,22,24),0,math.pi,6)
+            _draw.line(s,hair,(x-9,head_y-6),(x-10,head_y+7),4)
+            if hair_style==3:
+                _draw.circle(s,hair,(x-12,head_y-13),6)
+        elif hair_style==4:  # 棒球帽
+            _draw.arc(s,art.darken(shirt,.26),(x-11,head_y-13,22,21),0,math.pi,8)
+            _draw.line(s,art.darken(shirt,.26),(x,head_y-7),(x+15,head_y-7),4)
+        else:  # 短刘海
+            _draw.arc(s,hair,(x-11,head_y-12,22,20),0,math.pi,6)
+            for dx in (-6,0,6): _draw.line(s,hair,(x+dx,head_y-9),(x+dx-2,head_y-4),3)
+        _draw.circle(s,(61,52,45),(x+4,head_y),1)
+        _draw.circle(s,art.mix(skin,(227,133,124),.35),(x+7,head_y+4),2)
+        if accessory==1:  # 眼镜
+            _draw.circle(s,(90,78,65),(x+4,head_y),4,1)
+            _draw.line(s,(90,78,65),(x-7,head_y-1),(x,head_y-1),1)
+        elif accessory==2:
+            _draw.rect(s,(216,166,81),(x-8,top-1,16,5),border_radius=2)
+            _draw.line(s,(216,166,81),(x+4,top),(x+5,top+10),4)
+        elif accessory==3:
+            _draw.rect(s,art.darken(shirt,.3),(x-16-broad,top+6,9,17),border_radius=4)
+        if visitor or accessory==4:
+            _draw.line(s,(158,122,82),(x-11,top+9),(x-15,hip-9),2)
+            _draw.rect(s,(209,179,118),(x-19,hip-11,10,13),border_radius=3)
         if umbrella:
-            _draw.line(s,(119,114,100),(x+10,y-28),(x+10,y-61),2)
-            _draw.arc(s,colors[color_index],(x-9,y-79,40,33),0,math.pi,14)
-        return s
-    return _PEOPLE.get((color_index,visitor,umbrella,frame),build)
+            _draw.line(s,(119,114,100),(x+13,hip-6),(x+13,head_y-22),2)
+            umbrella_color=colors[seed//129600%6]
+            _draw.arc(s,umbrella_color,(x-10,head_y-40,46,36),0,math.pi,15)
+            _draw.line(s,art.lighten(umbrella_color,.25),(x+13,head_y-39),(x+13,head_y-24),1)
+        high=canvas.surface
+        if facing<0: high=pygame.transform.flip(high,True,False)
+        return Glyph(pygame.transform.smoothscale(high,(72,106)),
+                     lambda scale:pygame.transform.smoothscale(high,(max(1,round(72*scale)),max(1,round(106*scale)))))
+    return _PEOPLE.get((color_index,visitor,umbrella,frame,seed,facing),build)
 
 
 def road_tile(style,mask,season,light,weather):
@@ -104,7 +164,7 @@ def road_tile(style,mask,season,light,weather):
             _draw.line(s,(237,244,234),(6,6),(18,6),3)
         if weather in ('小雨','暴雨','雨夹雪'):
             _draw.line(s,(184,198,198),(8,36),(18,36),1)
-        if mask.bit_count()!=2 and mask:
+        if bin(mask).count('1')!=2 and mask:
             for x in (11,19,27,35): _draw.line(s,(237,231,207),(x,18),(x,27),3)
         return s
     return _TILES.get(key,build)

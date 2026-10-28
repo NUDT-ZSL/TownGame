@@ -39,6 +39,21 @@ def validate(state):
     from town_build import validate_build_state
     validate_build_state(state)
     m = state["meta"]
+    appearances = m.get('pet_appearances',{})
+    require(isinstance(appearances,dict),'宠物外观配置错误')
+    pet_species = {p['pet_id']:p['species'] for p in state['pets']}
+    require(all(pet_species.get(pid) in C.SPECIES and type(value) is int and 0<=value<384
+                for pid,value in appearances.items()),'宠物外观配置错误')
+    originals=m.get('pet_initial_appearances',{})
+    require(isinstance(originals,dict) and all(pid in pet_species and type(v) is int and 0<=v<384 for pid,v in originals.items()),'初始外观配置错误')
+    favorites=m.get('style_favorites',{})
+    require(isinstance(favorites,dict) and all(species in C.SPECIES and isinstance(values,list) and len(values)<=12
+            and len(values)==len(set(values)) and all(type(v) is int and 0<=v<384 for v in values) for species,values in favorites.items()),'收藏外观配置错误')
+    ledger=m.get('finance_ledger',[])
+    require(isinstance(ledger,list) and len(ledger)<=3000,'收支记录配置错误')
+    for row in ledger:
+        require(isinstance(row,dict) and type(row.get('delta')) is int and type(row.get('balance')) is int and row['balance']>=0
+                and isinstance(row.get('reason'),str) and isinstance(row.get('ts'),(int,float)) and 0<=row['ts']<=m['sim_ts'],'收支明细错误')
     require(m["mode"] in ("real", "fast") and m["coins"] >= 0 and m["reputation"] >= 0)
     require(0 <= m["sim_ts"] <= 253402300799 and 0 <= m["real_anchor"] <= 253402300799)
     require(0 <= m["start_ts"] <= m["sim_ts"])

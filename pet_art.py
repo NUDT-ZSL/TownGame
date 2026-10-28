@@ -6,8 +6,10 @@
 import math
 from dataclasses import dataclass
 import pygame
+from render_canvas import Glyph
 import art
 import game_config as C
+from appearance import rabbit_variant
 
 
 STAGE_HEIGHTS = {"幼崽": 96, "少年": 110, "成年": 128, "老年": 116}
@@ -15,7 +17,7 @@ POSE_FRAMES = {"idle": 4, "idle_blink": 4, "walk": 6, "sleep": 2, "eat": 4, "pet
 POSE_SPEED = {"idle": 1.7, "idle_blink": 1.7, "walk": 5.4, "sleep": .9, "eat": 4.2, "pet": 2.6, "bath": 4.6}
 REACTIONS = ("eat", "pet", "bath")
 LIGHT_TINTS = {"dawn": (255, 238, 226), "day": (255, 255, 255),
-               "dusk": (255, 219, 200), "night": (188, 197, 228)}
+               "dusk": (255, 235, 221), "night": (225, 232, 248)}
 SPECIES_KEYS = {"兔子": "rabbit", "绵羊": "sheep", "鹦鹉": "parrot", "狐狸": "fox",
                 "猫咪": "cat", "小狗": "dog", "仓鼠": "hamster", "刺猬": "hedgehog",
                 "羊驼": "alpaca", "梅花鹿": "deer", "小鸭": "duck", "孔雀": "peacock"}
@@ -64,10 +66,30 @@ for _species in ("猫咪", "小狗", "仓鼠", "刺猬", "羊驼", "梅花鹿", 
     }
 
 
-def palette_for(species, rare=False, stage="成年", sick=False):
+RABBIT_COATS = ((247,224,196),(244,241,232),(146,111,91),(157,168,179),
+                (210,164,108),(100,106,116),(201,193,169),(181,121,91))
+
+
+def palette_for(species, rare=False, stage="成年", sick=False, appearance=0):
     pal = dict(PALETTES[species])
+    if species!='兔子' and appearance%8:
+        coat=RABBIT_COATS[appearance%8]
+        for key in ('body','face','paw','tail','ear'):
+            if key in pal:
+                pal[key]=art.mix(pal[key],coat,.78)
+        pal['belly']=art.mix(coat,(255,249,235),.76)
+    if species=='兔子':
+        coat = RABBIT_COATS[appearance%8]
+        pal.update(body=coat,face=coat,paw=art.darken(coat,.08),
+                   belly=art.mix(coat,(255,249,235),.72))
     if rare:
         pal.update(RARE_PALETTES[species])
+        if species!='兔子' and appearance%8:
+            for key in ('body','face','paw'):
+                pal[key]=art.mix(pal[key],RABBIT_COATS[appearance%8],.35)
+        if species=='兔子':
+            for key in ('body','face','paw'):
+                pal[key] = art.mix(pal[key],RABBIT_COATS[appearance%8],.25)
     if stage == "老年":
         for key in ("body", "face", "belly", "ear", "paw", "wing"):
             if key in pal:
@@ -80,6 +102,10 @@ def palette_for(species, rare=False, stage="成年", sick=False):
         for key in ("body", "face", "belly", "ear", "wing"):
             if key in pal:
                 pal[key] = art.mix(pal[key], (208, 206, 192), .18)
+    if species=='兔子':
+        pal['pattern'],pal['ears'],pal['tuft'] = appearance//8%4,appearance//32%3,appearance//96%4
+        pal['mark'] = art.mix(pal['body'],(86,68,60),.48)
+        pal['white'] = art.mix(pal['body'],(255,250,239),.86)
     return pal
 
 
@@ -106,12 +132,18 @@ class PetActor:
     hovered: bool = False
     drawn_height: int = 100
     drawn_width: int = 85
+    appearance: int = -1
+    personality: str = '粘人'
+    hunger: float = 100
+    happy: float = 80
+    behavior_note: str = '自在休息'
 
     def sync_from_pet(self, pet, now):
         self.name = pet.name
         self.stage = pet.stage(now)
         self.rare = pet.rare
         self.sick = pet.unwell
+        self.personality,self.hunger,self.happy=pet.personality,pet.hunger,pet.happy
 
     @property
     def pose(self):
@@ -126,7 +158,7 @@ class PetActor:
         self.state_time = self.state_duration
         self.target = (self.x, self.y)
 
-    def update(self, dt, bounds, rng, night=False):
+    def update(self, dt, bounds, rng, night=False, context=None):
         dt = max(0.0, min(dt, .25))
         self.anim += dt
         if self.state != "sleep":
@@ -147,7 +179,7 @@ class PetActor:
             if distance < 3 or self.state_time <= 0:
                 self.state, self.state_time = "idle", rng.uniform(1.8, 4.2)
                 return
-            speed = 30.0*(.7 if self.sick else 1.0)
+            speed = 30.0*(.7 if self.sick else 1.0)*(1.15 if self.personality in ('粘人','活泼') else .85 if self.personality=='高冷' else 1)
             step = min(distance, speed*dt)
             self.x += dx/distance*step
             self.y += dy/distance*step
@@ -157,12 +189,36 @@ class PetActor:
             if self.state_time <= 0:
                 self.state, self.state_time = "idle", rng.uniform(1.4, 3.2)
         elif self.state_time <= 0:
-            self._decide(bounds, rng, night)
+            self._decide(bounds, rng, night, context)
         self.x = max(bounds.left+26, min(bounds.right-26, self.x))
         self.y = max(bounds.top+30, min(bounds.bottom-4, self.y))
 
-    def _decide(self, bounds, rng, night):
+    def _decide(self, bounds, rng, night, context=None):
         roll = rng.random()
+        if context and not night and not self.sick:
+            target=None
+            neighbors=context.get('companions',[])
+            if self.personality=='胆小' and any(math.hypot(self.x-x,self.y-y)<130 for x,y in neighbors):
+                corners=[(bounds.left+40,bounds.top+40),(bounds.right-40,bounds.top+40),
+                         (bounds.left+40,bounds.bottom-12),(bounds.right-40,bounds.bottom-12)]
+                target=max(corners,key=lambda p:min(math.hypot(p[0]-x,p[1]-y) for x,y in neighbors))
+                self.behavior_note='避开热闹，寻找安静角落'
+            elif self.hunger<45 or self.personality=='吃货' and roll<.7:
+                target=context.get('food');self.behavior_note='靠近食盆，等候喂食'
+            elif self.personality in ('粘人','活泼') and self.happy>=60 and roll<(.85 if self.personality=='活泼' else .65):
+                toy=context.get('toy')
+                if toy:
+                    target=(toy[0]+rng.uniform(-48,48),toy[1]+rng.uniform(-24,24))
+                    self.behavior_note='围着玩具蹦跳玩耍'
+            elif self.personality=='高冷' and roll<.5:
+                self.state,self.state_time='idle',rng.uniform(3,6)
+                self.behavior_note='独自观察小镇'
+                return
+            if target:
+                self.target=(max(bounds.left+30,min(bounds.right-30,target[0])),max(bounds.top+30,min(bounds.bottom-4,target[1])))
+                self.state,self.state_time='walk',6
+                return
+        self.behavior_note='夜间休息' if night else '自在散步'
         sleep_chance = .16+(.20 if night else 0)+(.20 if self.sick else 0)
         if roll < sleep_chance:
             self.state, self.state_duration = "sleep", rng.uniform(4.0, 8.5)
@@ -259,6 +315,20 @@ class PetArtRenderer:
             art.draw_drop(surface, self._p(head[0]+32, head[1]-16), 6.6*self.S, (144, 198, 228))
 
     # ---------- 物种立绘 ----------
+    def _rabbit_marks(self,s,pal,head,hr):
+        x,y = head
+        if pal['pattern']==1:
+            self._ell(s,pal['mark'],x-hr+2,y-hr*.4,hr*.70,hr*.94)
+        elif pal['pattern']==2:
+            self._ell(s,pal['white'],x-6,y-hr+2,12,hr*1.3)
+        elif pal['pattern']==3:
+            for dx,dy,r in ((-16,-14,8),(15,-16,6),(21,6,5)):
+                self._circ(s,pal['mark'],x+dx,y+dy,r)
+        if pal['tuft']:
+            color = pal['white'] if pal['pattern']!=2 else pal['mark']
+            for i in range(pal['tuft']):
+                self._ell(s,color,x-8+i*4,y-hr-3-i%2*2,7,11)
+
     def _draw_rabbit(self, s, pal, stage, pose, frame, rare, sick):
         baby, old = stage == "幼崽", stage == "老年"
         if rare:
@@ -268,11 +338,14 @@ class PetArtRenderer:
             self._ell(s, pal["paw"], 30, 126+breath, 60, 16)
             self._blob(s, self._r(26, 96+breath, 74, 44), pal["body"])
             self._ell(s, pal["belly"], 44, 110+breath, 36, 24)
+            if pal['pattern'] in (1,3):
+                self._ell(s,pal['mark'],32,99+breath,21,16)
             self._caps(s, pal["body"], (72, 96+breath), (46, 82+breath), 15)
             self._caps(s, pal["ear"], (68, 96+breath), (50, 86+breath), 6)
             self._circ(s, pal["belly"], 24, 114+breath, 10)
             head = (94, 106+breath)
             self._blob(s, self._r(head[0]-26, head[1]-26, 52, 52), pal["body"])
+            self._rabbit_marks(s,pal,head,26)
             self._eyes(s, [(head[0]-10, head[1]), (head[0]+10, head[1])], pal, pose, 0, scale=.9)
             self._ell(s, pal["nose"], head[0]-3.2, head[1]+8, 6.4, 4.6)
             self._cheeks(s, pal, [(head[0]-19, head[1]+7), (head[0]+19, head[1]+7)], 9, 6)
@@ -296,23 +369,35 @@ class PetArtRenderer:
         # 身体
         self._blob(s, self._r(34, 70+bob, 62, 70), pal["body"])
         self._ell(s, pal["belly"], 48, 96+bob, 36, 38)
+        if pal['pattern'] in (1,3):
+            self._ell(s,pal['mark'],36,84+bob,19,24)
+            if pal['pattern']==3:
+                self._ell(s,pal['mark'],79,93+bob,13,17)
         self._ell(s, pal["paw"], 43, 104+bob, 15, 23)
         self._ell(s, pal["paw"], 73, 106+bob, 15, 21)
         # 耳朵
         ear_outline = art.darken(pal["body"], .28)
-        if old:
+        if old or pal['ears']==1:
             self._caps(s, pal["body"], (61, 42+bob), (42, 30+bob), 15, ear_outline)
             self._caps(s, pal["body"], (82, 42+bob), (101, 30+bob), 15, ear_outline)
             self._caps(s, pal["ear"], (61, 41+bob), (46, 32+bob), 6)
             self._caps(s, pal["ear"], (82, 41+bob), (97, 32+bob), 6)
+            if not old:
+                self._caps(s,pal['body'],(42,30+bob),(38,57+bob),13,ear_outline)
+                self._caps(s,pal['body'],(101,30+bob),(105,57+bob),13,ear_outline)
+                self._caps(s,pal['ear'],(40,35+bob),(39,51+bob),5)
+                self._caps(s,pal['ear'],(103,35+bob),(104,51+bob),5)
         else:
             sway = math.sin(frame/4*math.pi*2)*(1.4 if pose == "idle" else 0)
             self._caps(s, pal["body"], (61, 41+bob), (54-sway, 7+bob), 15, ear_outline)
-            self._caps(s, pal["body"], (82, 41+bob), (90+sway, 7+bob), 15, ear_outline)
+            tip = (108+sway,53+bob) if pal['ears']==2 else (90+sway,7+bob)
+            self._caps(s, pal["body"], (82, 41+bob), tip, 15, ear_outline)
             self._caps(s, pal["ear"], (61, 37+bob), (55-sway, 12+bob), 6.5)
-            self._caps(s, pal["ear"], (82, 37+bob), (89+sway, 12+bob), 6.5)
+            inner = (104+sway,50+bob) if pal['ears']==2 else (89+sway,12+bob)
+            self._caps(s, pal["ear"], (82, 37+bob), inner, 6.5)
         # 头与五官
         self._blob(s, self._r(head[0]-hr, head[1]-hr, hr*2, hr*2), pal["body"])
+        self._rabbit_marks(s,pal,head,hr)
         eye_dx = 9.5 if baby else 11
         self._eyes(s, [(head[0]-eye_dx, head[1]-1), (head[0]+eye_dx, head[1]-1)],
                    pal, pose, droop=sick, scale=1.05 if baby else 1.0)
@@ -669,11 +754,35 @@ class PetArtRenderer:
             self._circ(surface, (255, 255, 255), x-r*.32, yy-r*.32, r*.32)
 
     # ---------- 帧与精灵 ----------
-    def _base(self, species, stage, rare, sick, pose, frame, light):
+    def _base(self, species, stage, rare, sick, pose, frame, light, appearance=0):
         surface = pygame.Surface((self.W*self.S, self.H*self.S), pygame.SRCALPHA)
-        pal = palette_for(species, rare, stage, sick)
+        pal = palette_for(species, rare, stage, sick, appearance)
         drawer = getattr(self, "_draw_"+SPECIES_KEYS.get(species, "rabbit"))
         drawer(surface, pal, stage, pose, frame, rare, sick)
+        if species!='兔子':
+            pattern,body,accent=appearance//8%4,appearance//32%3,appearance//96%4
+            color=art.darken(pal['body'],.28) if pattern!=2 else art.lighten(pal['body'],.38)
+            if pattern:
+                for x,y,r in (((46,113,9),(83,121,5)) if pattern==1 else
+                              ((53,113,5),(64,119,5),(75,125,5)) if pattern==2 else
+                              ((44,111,4),(52,120,4),(79,116,4),(86,126,3))):
+                    self._ell(surface,color,x-r,y-r,r*2,r*1.5)
+            if accent:
+                x,y=(57,123) if pose=='sleep' else (69,96)
+                c=pal.get('accent',(217,158,102))
+                if accent==1:
+                    self._poly(surface,c,[(x-10,y-5),(x,y),(x-10,y+5)])
+                    self._poly(surface,c,[(x+10,y-5),(x,y),(x+10,y+5)])
+                elif accent==2:
+                    art.draw_star(surface,self._p(x,y),6*self.S,(233,181,75))
+                else:
+                    for dx,dy in ((-4,0),(4,0),(0,-4),(0,4)):
+                        self._circ(surface,c,x+dx,y+dy,3)
+                    self._circ(surface,(246,214,127),x,y,2)
+            if body:
+                width=round(surface.get_width()*(.92 if body==1 else 1.08))
+                image=pygame.transform.smoothscale(surface,(width,surface.get_height()))
+                surface.fill((0,0,0,0));surface.blit(image,((surface.get_width()-width)//2,0))
         if pose == "bath":
             self._bubbles(surface, frame)
         tint = LIGHT_TINTS.get(light, (255, 255, 255))
@@ -683,19 +792,23 @@ class PetArtRenderer:
             surface.blit(overlay, (0, 0), special_flags=pygame.BLEND_RGBA_MULT)
         return surface
 
-    def frame_surface(self, species, stage, rare, sick, pose, frame, light="day"):
-        key = (species, stage, bool(rare), bool(sick), pose, frame, light)
-        return self.frames.get(key, lambda: self._base(species, stage, rare, sick, pose, frame, light))
+    def frame_surface(self, species, stage, rare, sick, pose, frame, light="day", appearance=0):
+        key = (species, stage, bool(rare), bool(sick), pose, frame, light, appearance)
+        return self.frames.get(key, lambda: self._base(species, stage, rare, sick, pose, frame, light, appearance))
 
-    def sprite(self, species, stage, rare, sick, pose, frame, light, height, facing=1):
-        base_key = (species, stage, bool(rare), bool(sick), pose, frame, light)
+    def sprite(self, species, stage, rare, sick, pose, frame, light, height, facing=1, appearance=0):
+        base_key = (species, stage, bool(rare), bool(sick), pose, frame, light, appearance)
         height = max(48, int(height)//4*4)
         width = max(36, int(height*self.W/self.H))
         key = (base_key, height, 1 if facing >= 0 else -1)
         def build():
-            base = self.frame_surface(species, stage, rare, sick, pose, frame, light)
+            base = self.frame_surface(species, stage, rare, sick, pose, frame, light, appearance)
             scaled = pygame.transform.smoothscale(base, (width, height))
-            return pygame.transform.flip(scaled, True, False) if facing < 0 else scaled
+            def native(scale):
+                image = pygame.transform.smoothscale(base,(max(1,round(width*scale)),max(1,round(height*scale))))
+                return pygame.transform.flip(image,True,False) if facing<0 else image
+            image = pygame.transform.flip(scaled, True, False) if facing < 0 else scaled
+            return Glyph(image,native)
         return self.sprites.get(key, build)
 
     def perspective(self, y, top, bottom):
@@ -709,14 +822,15 @@ class PetArtRenderer:
         base_height = STAGE_HEIGHTS.get(actor.stage, 100)
         height = max(48, int(base_height*perspective/4*4))
         sprite = self.sprite(actor.species, actor.stage, actor.rare, actor.sick,
-                             pose, frame, light, height, actor.facing)
+                             pose, frame, light, height, actor.facing,
+                             actor.appearance if actor.appearance>=0 else rabbit_variant(actor.pet_id))
         rect = sprite.get_rect(midbottom=(int(actor.x), int(actor.y)))
         surface.blit(sprite, rect)
         actor.drawn_height, actor.drawn_width = height, rect.width
         return rect
 
     def portrait(self, species, stage, rare=False, sick=False, height=232,
-                 light="day", pose="idle", frame=1):
-        key = (species, stage, bool(rare), bool(sick), height, light, pose, frame)
+                 light="day", pose="idle", frame=1, appearance=0):
+        key = (species, stage, bool(rare), bool(sick), height, light, pose, frame, appearance)
         return self.portraits.get(key, lambda: self.sprite(
-            species, stage, rare, sick, pose, frame, light, height, 1))
+            species, stage, rare, sick, pose, frame, light, height, 1, appearance))

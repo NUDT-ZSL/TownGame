@@ -17,6 +17,7 @@ from sanitation import SanitationSystem
 from weather import WeatherSystem
 from town import TownSystem
 from town_build import TownBuildSystem
+from pet_services import action_reason
 
 
 class GameError(ValueError):
@@ -172,6 +173,15 @@ class Game:
 
     def log(self, text, ts=None):
         self.logs.append({"log_id": uuid.uuid4().hex, "ts": self.now if ts is None else ts, "text": text})
+        self._record_finance(text,self.now if ts is None else ts)
+
+    def _record_finance(self,reason,ts=None):
+        coins=self.meta['coins'];previous=self.meta.get('ledger_balance',coins)
+        if coins!=previous:
+            rows=self.meta.setdefault('finance_ledger',[])
+            rows.append(dict(ts=self.now if ts is None else ts,delta=coins-previous,balance=coins,reason=reason))
+            self.meta['finance_ledger']=rows[-3000:]
+        self.meta['ledger_balance']=coins
 
     def advance(self, real_now=None, persist=True):
         """每次动作前与退出时调用。模式切换前先按旧倍率结算。
@@ -251,6 +261,7 @@ class Game:
                     self.meta["next_event_ts"] += C.EVENT_INTERVAL
             self.meta["real_anchor"] = max(real, self.meta["real_anchor"])
             achievement.check(self)
+            self._record_finance('时间推进结算')
             if persist:
                 self.save()
         except Exception:
@@ -322,6 +333,7 @@ class Game:
             result = handler(**kwargs)
             self.sanitation.wake()
             achievement.check(self)
+            self._record_finance('操作结算：'+action)
             self.save()
             if action in ('build_roads','remove_roads'):
                 self.construction.undo.append(self.construction.pending_undo)
@@ -384,6 +396,25 @@ class Game:
             p.die(self.now, "误食腐败物导致健康耗尽")
         self.log(f"给{p.name}喂了{item}。")
 
+    def _act_batch_care(self,kind):
+        if kind not in ('feed','bath','play','collect'):
+            raise GameError('不支持的批量操作')
+        done=[];skipped=[]
+        for p in sorted(self.living,key=lambda p:(p.hunger if kind=='feed' else p.cleanliness if kind=='bath' else 0,p.pet_id)):
+            reason=action_reason(self,p,kind,batch=True)
+            if reason:
+                skipped.append(f'{p.name}：{reason}')
+                continue
+            if kind=='feed':
+                item=next(item for item,spec in C.ITEMS.items() if 'feed' in spec and item!='腐败物' and self.inventory.count(item))
+                self._act_feed(p.pet_id,item)
+            else:getattr(self,'_act_'+kind)(pet_id=p.pet_id)
+            done.append(p.name)
+        label={'feed':'喂食','bath':'洗澡','play':'互动','collect':'收取'}[kind]
+        result=f'批量{label}完成 {len(done)} 只，跳过 {len(skipped)} 只。'
+        if skipped:result+=' '+'；'.join(skipped[:4])
+        return result
+
     def _act_bath(self, pet_id):
         p = self._pet(pet_id)
         self.inventory.take("清水", 1)
@@ -411,6 +442,38 @@ class Game:
 
     def _act_hospitalize(self, pet_id):
         return self.medical.hospitalize(pet_id)
+
+    def _validate_appearance(self, species, variant):
+        if species not in C.SPECIES or type(variant) is not int or not 0 <= variant < 384:
+            raise GameError('请选择有效的动物外观')
+
+    def _act_favorite_style(self, species, variant):
+        self._validate_appearance(species,variant)
+        favorites=self.meta.setdefault('style_favorites',{}).setdefault(species,[])
+        if variant in favorites:
+            favorites.remove(variant)
+            return '已取消收藏样式。'
+        if len(favorites)>=12:
+            raise GameError('每个品种最多收藏12种样式，请先取消一个收藏')
+        favorites.append(variant)
+        return '样式已加入收藏。'
+
+    def _act_reset_appearance(self,pet_id):
+        p=self._pet(pet_id,allow_foster=True)
+        from appearance import rabbit_variant
+        initial=self.meta.get('pet_initial_appearances',{}).get(pet_id,rabbit_variant(pet_id))
+        self.meta.setdefault('pet_appearances',{})[pet_id]=initial
+        return f'{p.name}已恢复初始样式。'
+
+    def _act_pet_appearance(self, pet_id, variant):
+        p = self._pet(pet_id,allow_foster=True)
+        self._validate_appearance(p.species,variant)
+        from appearance import pet_variant
+        self.meta.setdefault('pet_initial_appearances',{}).setdefault(pet_id,pet_variant(pet_id,self.meta))
+        self.meta.setdefault('pet_appearances',{})[pet_id] = variant
+        text = f'{p.name}的外观已更新。'
+        self.log(text)
+        return text
 
     def _act_rename(self, pet_id, name):
         p = self._pet(pet_id, True)
@@ -478,7 +541,9 @@ class Game:
         self.log(text)
         return text
 
-    def _act_buy_pet(self, species, egg=False, sex=None):
+    def _act_buy_pet(self, species, egg=False, sex=None, appearance=None):
+        if appearance is not None:
+            self._validate_appearance(species,appearance)
         self._require_building("商店")
         price = self.pet_buy_price(species, egg)
         if sex is not None and sex not in C.SEXES:
@@ -494,6 +559,9 @@ class Game:
         else:
             p.note(self.now, f"在商店花费{price}金币购买")
         self.pets[p.pet_id] = p
+        if appearance is not None:
+            self.meta.setdefault('pet_appearances',{})[p.pet_id] = appearance
+            self.meta.setdefault('pet_initial_appearances',{})[p.pet_id] = appearance
         self.meta["reputation"] += C.EGG_RARE_REPUTATION if rare else 0
         text = f"花费{price}金币{'孵化' if egg else '购买'}新伙伴{p.name}（{p.sex}），生日已记录。"
         self.log(text)
@@ -655,6 +723,12 @@ class Game:
     def _act_dismiss_build_guide(self):
         self.meta['build_guide_dismissed']=True
         return '建设指引已收起'
+
+    def _act_decoration(self,operation,**kwargs):
+        from decorations import edit
+        text=edit(self,operation,**kwargs)
+        self.log(text)
+        return text
 
     def _act_harvest_field(self):
         return self.town.harvest()

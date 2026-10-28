@@ -159,51 +159,10 @@ class CourtyardView:
         return surface
 
     def _tree(self, surface, x, base, scale, season, colors, light):
-        trunk = (132, 96, 66)
-        art.draw_shadow(surface, (x, base+4), (110*scale, 22*scale), 50, 8)
-        pygame.draw.line(surface, art.darken(trunk, .12), (x, base), (x-6*scale, base-110*scale),
-                         max(5, int(16*scale)))
-        pygame.draw.line(surface, trunk, (x-2, base), (x-8*scale, base-108*scale),
-                         max(3, int(11*scale)))
-        pygame.draw.line(surface, art.darken(trunk, .12), (x-4*scale, base-84*scale),
-                         (x-46*scale, base-132*scale), max(3, int(8*scale)))
-        pygame.draw.line(surface, art.darken(trunk, .12), (x-2*scale, base-96*scale),
-                         (x+42*scale, base-140*scale), max(3, int(8*scale)))
-        if season == "冬":
-            pygame.draw.line(surface, trunk, (x-8*scale, base-108*scale),
-                             (x-52*scale, base-146*scale), max(2, int(6*scale)))
-            pygame.draw.line(surface, trunk, (x-8*scale, base-108*scale),
-                             (x+42*scale, base-150*scale), max(2, int(6*scale)))
-            for tx, ty in ((x-46*scale, base-150*scale), (x+36*scale, base-152*scale),
-                           (x-8*scale, base-168*scale)):
-                pygame.draw.circle(surface, (246, 250, 252), (int(tx), int(ty)), max(3, int(9*scale)))
-            return
-        canopy = colors["tree"] if season != "春" else (122, 172, 112)
-        dark = art.darken(canopy, .16)
-        clumps = ((-38, -150, 44), (2, -170, 52), (44, -146, 40),
-                  (-8, -128, 46), (30, -118, 32), (-54, -124, 30))
-        pygame.draw.ellipse(surface, dark, (int(x-92*scale), int(base-206*scale),
-                                            int(184*scale), int(120*scale)))
-        for cx, cy, r in clumps:
-            pygame.draw.circle(surface, dark, (int(x+cx*scale), int(base+cy*scale+4*scale)),
-                               int(r*scale))
-        for cx, cy, r in clumps:
-            pygame.draw.circle(surface, canopy, (int(x+cx*scale), int(base+cy*scale)),
-                               int((r-2)*scale))
-            pygame.draw.circle(surface, art.lighten(canopy, .12),
-                               (int(x+(cx-8)*scale), int(base+(cy-9)*scale)), int(r*.52*scale))
-        if season == "春":
-            for i in range(14):
-                bx = x+(-52+(i*19) % 104)*scale
-                by = base+(-168+(i*29) % 74)*scale
-                pygame.draw.circle(surface, colors["accent"], (int(bx), int(by)), max(2, int(4*scale)))
-        elif season == "秋":
-            for i in range(10):
-                bx = x+(-50+(i*23) % 100)*scale
-                by = base+(-164+(i*31) % 70)*scale
-                pygame.draw.circle(surface, (240, 176, 96), (int(bx), int(by)), max(2, int(5*scale)))
-        if light == "night":
-            art.draw_glow(surface, (int(x), int(base-140*scale)), int(46*scale), (255, 232, 170), 26)
+        from tree_art import profile,tree_sprite
+        species,variant,_=profile(f'courtyard:{x}:{base}')
+        image=tree_sprite(species,variant,season,light,max(48,round(220*scale)))
+        surface.blit(image,image.get_rect(midbottom=(round(x),round(base))))
 
     def _fence(self, surface, season, colors):
         wood = (196, 164, 120) if season != "冬" else (176, 172, 166)
@@ -326,7 +285,7 @@ class CourtyardView:
         surface.blit(self.background(self.season, self.light), SCENE.topleft)
         self._layout_buildings(game)
         self._layout_props()
-        mouse = pygame.mouse.get_pos() if pointer is None else pointer
+        mouse = ui.pointer() if pointer is None else pointer
 
         hover_bid = self.building_at(mouse)
         hover_prop = self.prop_at(mouse)

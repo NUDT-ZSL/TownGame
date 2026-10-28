@@ -25,6 +25,7 @@ class BuildController:
     def toggle_land(self): self.land_overlay=not self.land_overlay
 
     def enter(self):
+        if hasattr(self.app,'decorator'):self.app.decorator.exit()
         self.app.close_modal(); self.app.menu_open=False; self.app.pan=None; self.app.drag=None
         self.active=True; self.stroke=None; self.pan=None
         self.app.notify('建设：左键铺路/放置，右键或中键移图，滚轮缩放，Esc取消。')
@@ -46,6 +47,9 @@ class BuildController:
 
     def cell(self,pos=None):
         return world_to_cell(*self.app.courtyard.camera.screen_to_world(pos or self.pointer))
+
+    def panel_rect(self):
+        return self.panel.move(self.app.screen.get_width()-1280,0)
 
     def rows(self):
         if self.tool==0: return list(K.ROAD_STYLES)
@@ -77,35 +81,36 @@ class BuildController:
             self.pointer=event.pos
             if self.pan:
                 self.app.courtyard.camera.pan(event.pos[0]-self.pan[0],event.pos[1]-self.pan[1]); self.pan=event.pos
-            elif self.stroke and self.app.courtyard.camera.vy<=event.pos[1]<704 and not self.panel.collidepoint(event.pos):
+            elif self.stroke and self.app.courtyard.viewport.collidepoint(event.pos) and not self.panel_rect().collidepoint(event.pos):
                 self.stroke+=line_cells(self.stroke[-1],self.cell(event.pos))[1:]
             return True
         if event.type==pygame.MOUSEWHEEL:
-            pos=pygame.mouse.get_pos()
-            if self.panel.collidepoint(pos): self.scroll=max(0,min(max(0,len(self.rows())-3),self.scroll-event.y))
-            elif 88<=pos[1]<704: self.app.courtyard.camera.zoom_at(pos,1.12**event.y)
+            pos=ui.pointer()
+            if self.panel_rect().collidepoint(pos): self.scroll=max(0,min(max(0,len(self.rows())-3),self.scroll-event.y))
+            elif self.app.courtyard.viewport.collidepoint(pos): self.app.courtyard.camera.zoom_at(pos,1.12**event.y)
             return True
         if event.type==pygame.MOUSEBUTTONDOWN:
             self.pointer=event.pos
-            if event.button in (2,3) and 88<=event.pos[1]<704:
+            if event.button in (2,3) and self.app.courtyard.viewport.collidepoint(event.pos):
                 self.stroke=None; self.pan=event.pos
                 if event.button==3: self.selected=None
                 return True
             if event.button!=1: return True
             if event.pos[1]<88: self.app.hud.handle(event.pos); return True
             for button in self.tool_buttons+self.toggles+[self.exit_button]:
-                if button.click(event.pos): return True
-            if not self.app.game.meta['build_guide_dismissed'] and self.guide_button.click(event.pos): return True
-            if self.panel.collidepoint(event.pos):
+                if button.click(self.app.bottom_pos(event.pos)): return True
+            if not self.app.game.meta['build_guide_dismissed'] and self.guide_button.click(self.app.bottom_pos(event.pos)): return True
+            catalog_pos=(event.pos[0]-(self.app.screen.get_width()-1280),event.pos[1])
+            if self.panel_rect().collidepoint(event.pos):
                 if event.pos[1]<225 and self.tool in (1,2,3,4):
-                    index=max(0,min(4,(event.pos[0]-self.panel.x-10)//56))
+                    index=max(0,min(4,(catalog_pos[0]-self.panel.x-10)//56))
                     self.family=list(K.FAMILIES)[index]; self.scroll=0
                     self.selected=next(iter(self.rows()),None)
                 else:
                     for rect,key in self.catalog_hits:
-                        if rect.collidepoint(event.pos): self._choose(key); break
+                        if rect.collidepoint(catalog_pos): self._choose(key); break
                 return True
-            if not 88<=event.pos[1]<704: return True
+            if not self.app.courtyard.viewport.collidepoint(event.pos): return True
             if self.app.courtyard.fixed_click(event.pos): return True
             if self.tool in (0,5):
                 if self.tool==5:
@@ -148,7 +153,7 @@ class BuildController:
 
     def draw(self,surface):
         g=self.app.game; view=self.app.courtyard; f=self.app.fonts
-        overlay=pygame.Surface((1280,616),pygame.SRCALPHA)
+        overlay=pygame.Surface(view.viewport.size,pygame.SRCALPHA)
         if self.grid_lines or self.land_overlay:
             for c in iter_visible_cells(view.camera):
                 r=view.project_rect(cell_rect(*c)).move(0,-88)
@@ -186,6 +191,10 @@ class BuildController:
         for fixed in (view.legend_rect,view.home_button,view.overview_rect):
             overlay.fill((0,0,0,0),fixed.move(0,-88))
         surface.blit(overlay,(0,88))
+        target=surface
+        if surface.get_size()!=(1280,860):
+            surface=pygame.Surface((1280,860))
+            ui.pointer_transform=lambda pos:(pos[0]-(target.get_width()-1280),pos[1]) if self.panel_rect().collidepoint(pos) else self.app.bottom_pos(pos)
         art.clay_panel(surface,(0,704,1280,156),ui.PANEL,0,ui.LINE)
         for i,button in enumerate(self.tool_buttons):
             button.tone=ui.GREEN if i==self.tool else None; button.draw(surface,f)
@@ -223,3 +232,8 @@ class BuildController:
                 f.text(surface,f"人口+{spec['population']} · 吸引{spec['attraction']:+g} · 日税{spec['tax']}",(rect.x+58,rect.y+47),11,ui.MUTED)
         if not rows: f.text(surface,'拖动擦除道路；点击玩家建筑拆除。' if self.tool==5 else '此分类暂无该风格，请切换页签。',(970,250),13,ui.MUTED)
         f.text(surface,'目录内滚轮翻页 · 相同路面不重复收费',(970,474),12,ui.MUTED)
+        if target is not surface:
+            pygame.draw.rect(target,ui.PANEL,(0,target.get_height()-156,target.get_width(),156))
+            target.blit(surface,((target.get_width()-1280)//2,target.get_height()-156),(0,704,1280,156))
+            target.blit(surface,self.panel_rect(),self.panel)
+            ui.pointer_transform=None

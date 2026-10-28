@@ -53,6 +53,8 @@ def validate_build_state(state):
                 raise ValueError('建筑重叠、越界或侵入保护地形')
             occupied.add(c)
     m=state['meta']
+    from decorations import validate as validate_decorations
+    validate_decorations(m,occupied)
     if 'next_tax_ts' in m and (m['next_tax_ts']<now or any(type(m[k]) is not int or m[k]<0 for k in ('roads_built','town_buildings_built','town_tax_total'))):
         raise ValueError('建设调度或统计无效')
 
@@ -85,7 +87,7 @@ class TownBuildSystem:
         return self.grid.connected_zones().get(zone,True)
 
     def occupied(self):
-        return {c for b in self.game.town_buildings for c in footprint(b)}
+        return {c for b in self.game.town_buildings for c in footprint(b)} | {(d['cx'],d['cy']) for d in self.game.meta.get('decorations',[])}
 
     def reason(self,cell,occupied=None):
         if len(cell)!=2 or not in_bounds(*cell):

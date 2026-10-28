@@ -2,6 +2,8 @@
 __pycache__/
 *.py[cod]
 .venv/
+ui-settings.json
+ui-settings.tmp
 
 # 项目内本机 pygame 运行时（与解释器版本绑定，不入库）
 .runtime/

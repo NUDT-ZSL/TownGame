@@ -1,1 +1,3 @@
-pygame>=2.6.1,<3
+# Requires Python 3.10 or newer. Python itself is not installed by pip.
+# sqlite3 and the other modules used by the game are part of Python's standard library.
+pygame>=2.6.1,<3.0

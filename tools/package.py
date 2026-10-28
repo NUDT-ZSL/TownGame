@@ -6,7 +6,7 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 def main():
-    sources = sorted(ROOT.glob("*.py")) + sorted((ROOT/"tests").glob("*.py")) + [Path(__file__).resolve()]
+    sources = sorted(ROOT.glob("*.py")) + sorted((ROOT/"tests").glob("*.py")) + sorted((ROOT/"tools").glob("*.py"))
     listing = ["# 慢时光宠物经营小镇 v5 · 完整分文件源码", "", "环境：Python 3.10+，唯一第三方依赖 pygame。", "", "```powershell", "python -m pip install -r requirements.txt", "python main.py", "```", "", "每个代码块对应一个独立文件，按标题路径保存。详细玩法与设计见 README.md 和开发说明.md。", ""]
     for source in sources:
         listing.extend([f"## {source.relative_to(ROOT).as_posix()}", "", "```python", source.read_text(encoding="utf-8").rstrip(), "```", ""])
