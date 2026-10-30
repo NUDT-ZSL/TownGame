@@ -144,4 +144,4 @@ class DecorationController:
         pygame.draw.rect(surface,ui.PANEL,tips,border_radius=8)
         app.fonts.text(surface,('不能放置：'+reason) if reason else ('选择新位置，点击放下' if self.moving else '点击草地摆放；点击已有装饰可移动'),
                        (tips.x+12,tips.y+4),16,ui.RED if reason else ui.GREEN)
-        app.fonts.text(surface,'R旋转 · Delete拆除 · Ctrl+Z撤销 · 中键/右键移图 · Esc取消',(tips.x+12,tips.y+27),14,ui.MUTED)
+        app.fonts.text(surface,'R旋转 · Delete拆除 · Ctrl+Z撤销 · ' + ('中键移图 · 右键转视角' if getattr(view,'is_3d',False) else '中键/右键移图') + ' · Esc取消',(tips.x+12,tips.y+27),14,ui.MUTED)

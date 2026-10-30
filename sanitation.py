@@ -12,6 +12,7 @@ class SanitationSystem:
         values = {"farm_manager":False, "manager_job":None, "manager_status":"未雇佣",
                   "manager_next_wage_ts":g.now+C.MANAGER_WAGE_INTERVAL,
                   "manager_next_scan_ts":g.now, "manager_cleaned":0,
+                  "manager_fed":0, "manager_last_feed_ts":0,
                   "manager_u":C.MANAGER_HOME[0], "manager_v":C.MANAGER_HOME[1],
                   "manager_last_clean_ts":0}
         for key,value in values.items():
@@ -75,6 +76,7 @@ class SanitationSystem:
     def hire_toggle(self):
         g = self.game
         if g.meta["farm_manager"]:
+            self._remember_position()
             g.meta["farm_manager"] = False
             g.meta["manager_job"] = None
             g.meta["manager_status"] = "已解雇"
@@ -129,30 +131,58 @@ class SanitationSystem:
         ids = {w["waste_id"] for w in piles}
         g.waste = [w for w in g.waste if w["waste_id"] not in ids]
         job = g.meta["manager_job"]
-        if job and job["waste_id"] in ids:
+        if job and job.get("waste_id") in ids:
+            self._remember_position()
             g.meta["manager_job"] = None
             g.meta["manager_next_scan_ts"] = g.now
 
     def wake(self):
         g = self.game
+        job = g.meta["manager_job"]
+        if job and job.get("kind") == "feed" and not self._feed_target(job):
+            self._remember_position()
+            g.meta["manager_job"] = None
         if not g.meta["farm_manager"] or g.meta["manager_job"]:
             return
         piles = sorted(g.waste,key=lambda w:(w["created_ts"],w["waste_id"]))
-        if not piles:
-            g.meta["manager_status"] = "巡查"
-            g.meta["manager_next_scan_ts"] = g.now+C.MANAGER_SCAN_INTERVAL
-            return
-        target = piles[0]
-        if g.inventory.used+target["quantity"] > g.storage_capacity:
-            g.meta["manager_status"] = "仓库已满，等待腾空"
-            g.meta["manager_next_scan_ts"] = g.now+C.MANAGER_RETRY_INTERVAL
+        hungry = sorted((p for p in g.living if not p.fostered and p.hunger < C.CARE_FEED_THRESHOLD),
+                        key=lambda p:(p.hunger,p.pet_id))
+        feed = hungry[0] if hungry and g.inventory.count("普通饲料") else None
+        clean = next((w for w in piles if g.inventory.used+w["quantity"] <= g.storage_capacity),None)
+        # 先处理非常饥饿的动物，其余时间在卫生和喂食之间按需求工作。
+        if feed and (feed.hunger < 35 or clean is None):
+            # 固定食盆在庭院 (318, 668)，饥饿动物的自主行为也会前往这里。
+            target = {"kind":"feed","pet_id":feed.pet_id,"building_id":feed.building_id,
+                      "u":(318-210)/860,"v":(668-552)/124}
+        elif clean:
+            target = dict(clean,kind="clean")
+        else:
+            reasons = []
+            if piles: reasons.append("仓库已满，等待腾空")
+            if hungry: reasons.append("普通饲料不足，等待补货")
+            g.meta["manager_status"] = "；".join(reasons) if reasons else "休息待命"
+            g.meta["manager_next_scan_ts"] = g.now+(C.MANAGER_RETRY_INTERVAL if reasons else C.MANAGER_SCAN_INTERVAL)
             return
         g.meta["manager_status"] = "工作中"
-        g.meta["manager_job"] = {"waste_id":target["waste_id"],"building_id":target["building_id"],
+        g.meta["manager_job"] = {"kind":target["kind"],"waste_id":target.get("waste_id",""),
+                                 "pet_id":target.get("pet_id",""),"building_id":target["building_id"],
                                  "u":target["u"],"v":target["v"],
                                  "from_u":g.meta["manager_u"],"from_v":g.meta["manager_v"],
                                  "start_ts":g.now,"sweep_ts":g.now+C.MANAGER_TRAVEL_SECONDS,
                                  "end_ts":g.now+C.MANAGER_TRAVEL_SECONDS+C.MANAGER_SWEEP_SECONDS}
+
+    def _feed_target(self, job):
+        p = self.game.pets.get(job.get("pet_id"))
+        return p if p and p in self.game.living and not p.fostered and p.building_id == job["building_id"] and p.hunger < C.CARE_FEED_THRESHOLD else None
+
+    def _remember_position(self):
+        g = self.game
+        job = g.meta.get("manager_job")
+        if not job:
+            return
+        ratio = max(0,min(1,(g.now-job["start_ts"])/max(.001,job["sweep_ts"]-job["start_ts"])))
+        for axis in ("u","v"):
+            g.meta["manager_"+axis] = job["from_"+axis]+(job[axis]-job["from_"+axis])*ratio
 
     def tick(self):
         g = self.game
@@ -161,6 +191,7 @@ class SanitationSystem:
             return
         if g.now >= g.meta["manager_next_wage_ts"]:
             if g.meta["coins"] < C.MANAGER_WAGE:
+                self._remember_position()
                 g.meta["farm_manager"] = False
                 g.meta["manager_job"] = None
                 g.meta["manager_status"] = "工资不足，已停工"
@@ -173,17 +204,28 @@ class SanitationSystem:
         if job and g.now >= job["end_ts"]:
             g.meta["manager_u"],g.meta["manager_v"] = job["u"],job["v"]
             try:
-                self.collect(waste_id=job["waste_id"],by_manager=True)
-            except ValueError:
+                if job.get("kind") == "feed":
+                    pet = self._feed_target(job)
+                    if pet:
+                        g._act_feed(pet.pet_id)
+                        g.meta["manager_fed"] += 1
+                        g.meta["manager_last_feed_ts"] = g.now
+                        g.log(f"农场管理员{C.MANAGER_NAME}喂养了{pet.name}。")
+                    g.meta["manager_job"] = None
+                else:
+                    self.collect(waste_id=job["waste_id"],by_manager=True)
+            except ValueError as error:
                 g.meta["manager_job"] = None
-                g.meta["manager_status"] = "仓库已满，等待腾空"
+                g.meta["manager_status"] = str(error)
                 g.meta["manager_next_scan_ts"] = g.now+C.MANAGER_RETRY_INTERVAL
-        if not g.meta["manager_job"]:
-            self.wake()
+        # 动物可能在两次扫描间离园、死亡或已被其他照护者喂饱。
+        self.wake()
 
     def status(self):
         g = self.game
         job = g.meta["manager_job"]
         if g.meta["farm_manager"] and job:
+            if job.get("kind") == "feed":
+                return "前往喂食" if g.now < job["sweep_ts"] else "喂食中"
             return "前往清扫" if g.now < job["sweep_ts"] else "清扫中"
         return g.meta["manager_status"]

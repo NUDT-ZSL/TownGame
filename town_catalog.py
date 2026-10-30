@@ -1,6 +1,6 @@
 """小镇建设目录与平衡参数；领域层不依赖Pygame。"""
 GRID_SIZE = 48
-GRID_COLS, GRID_ROWS = 75, 50
+GRID_COLS, GRID_ROWS = 125, 80
 CHUNK_SIZE = 6
 ROAD_STYLES = {
     "asphalt": {"name":"沥青街道","cost":10,"color":(123,135,137)},
@@ -55,5 +55,5 @@ VEHICLE_GAP = 55
 VEHICLE_TIMEOUT = 9
 VEHICLE_SPEEDS = {"car":52,"bus":39,"truck":35}
 VEHICLE_NAMES = {"car":"小轿车","bus":"公交车","truck":"货车"}
-LANE_OFFSET = 7
-SIDEWALK_OFFSET = 19
+LANE_OFFSET = 10
+SIDEWALK_OFFSET = 23

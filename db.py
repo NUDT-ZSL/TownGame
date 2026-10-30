@@ -15,7 +15,7 @@ import game_config as C
 class SaveError(RuntimeError):
     pass
 
-SCHEMA_VERSION = 5
+SCHEMA_VERSION = 6
 
 
 def require(condition, message="存档字段超出允许范围"):
@@ -38,6 +38,8 @@ def validate(state):
     finite_tree(state)
     from town_build import validate_build_state
     validate_build_state(state)
+    from settlement import validate_state
+    validate_state(state)
     m = state["meta"]
     appearances = m.get('pet_appearances',{})
     require(isinstance(appearances,dict),'宠物外观配置错误')
@@ -156,11 +158,17 @@ def validate(state):
     job = m.get("manager_job")
     if job is not None:
         require(m.get("farm_manager",False) and isinstance(job,dict))
-        require(job["waste_id"] in {w["waste_id"] for w in waste} and job["building_id"] in buildings)
+        require(job.get("kind","clean") in ("clean","feed") and job["building_id"] in buildings)
         require(0 <= job["start_ts"] <= m["sim_ts"] <= job["end_ts"] and job["start_ts"] < job["sweep_ts"] < job["end_ts"])
         require(all(0 <= job[k] <= 1 for k in ("u","v","from_u","from_v")))
-        target = next(w for w in waste if w["waste_id"] == job["waste_id"])
-        require(all(job[k] == target[k] for k in ("u","v","building_id")))
+        if job.get("kind") == "feed":
+            require(job.get("pet_id") in pets)
+            target = pets[job["pet_id"]]
+            require(not target.death_ts and not target.departure and not target.fostered and target.building_id == job["building_id"])
+        else:
+            require(job["waste_id"] in {w["waste_id"] for w in waste})
+            target = next(w for w in waste if w["waste_id"] == job["waste_id"])
+            require(all(job[k] == target[k] for k in ("u","v","building_id")))
     if "weather" in m:
         require(m["weather"] in C.WEATHERS and 0 <= m["weather_since_ts"] <= m["sim_ts"] and m["next_weather_ts"] >= m["sim_ts"])
     if "town_open_ts" in m:
@@ -255,6 +263,8 @@ class Database:
             self.conn.execute("CREATE INDEX IF NOT EXISTS pet_home ON pets(building_id)")
             if version < 5:
                 self._migrate_v5()
+            if version < 6:
+                self._migrate_v6()
             state = self.load()
             if state:
                 validate(state)  # 数据校验也在DDL事务内，失败不会提交半迁移表。
@@ -275,6 +285,24 @@ class Database:
             for road in default_roads(meta['sim_ts']):
                 self.conn.execute('INSERT INTO roads VALUES (?,?)',(road['road_id'],json.dumps(road,ensure_ascii=False)))
             self.conn.execute('INSERT INTO meta VALUES (?,?)',('road_revision','0'))
+
+    def _migrate_v6(self):
+        """扩展区域只追加新地图上的公共道路，保留玩家修改的旧城。"""
+        state=self.load()
+        if not state:return
+        for zone in state['town_zones']:
+            self.conn.execute('INSERT OR IGNORE INTO town_zones VALUES (?,?)',(zone['zone_id'],json.dumps(zone,ensure_ascii=False)))
+        from town_grid import default_roads,terrain
+        from town_build import footprint
+        occupied={c for b in state['town_buildings'] for c in footprint(b)}
+        occupied.update((d['cx'],d['cy']) for d in state['meta'].get('decorations',[]))
+        for road in default_roads(state['meta']['sim_ts']):
+            cell=road['cx'],road['cy']
+            extension=(cell[0]>60 and cell[1]==13) or cell[0]==74 or cell[1]>=50 or (cell[0]==37 and cell[1]>30)
+            if extension and cell not in occupied and terrain(cell) in ('grass','zone'):
+                self.conn.execute('INSERT OR IGNORE INTO roads VALUES (?,?)',(road['road_id'],json.dumps(road,ensure_ascii=False)))
+        revision=state['meta'].get('road_revision',0)+1
+        self.conn.execute('INSERT OR REPLACE INTO meta VALUES (?,?)',('road_revision',json.dumps(revision)))
 
     def _recover(self, exc):
         # 不覆盖损坏原档；SQLite WAL/SHM 一并隔离，方便人工恢复。
@@ -324,6 +352,10 @@ class Database:
         state["achievements"] = {r["id"]: r["ts"] for r in self.conn.execute("SELECT * FROM achievements")}
         state["codex"] = {r["species"]: json.loads(r["data"]) for r in self.conn.execute("SELECT * FROM codex")}
         state["logs"] = list(reversed(self.read_logs(300)))
+        if self.conn.execute('PRAGMA user_version').fetchone()[0]<6 and state['town_zones']:
+            existing={z['zone_id'] for z in state['town_zones']}
+            for key in ('ranch','industry','city'):
+                if key not in existing:state['town_zones'].append({'zone_id':key,'level':0})
         return state
 
     def save(self, state):

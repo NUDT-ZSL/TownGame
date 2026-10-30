@@ -17,7 +17,7 @@ BASE_STORAGE = 120
 STORAGE_PER_LEVEL = 100
 SEASON_DAYS = 7
 SEASONS = ("春", "夏", "秋", "冬")
-WORLD_SIZE = (3600,2400)
+WORLD_SIZE = (6000,3840)
 FARM_WORLD_RECT = (1160,760,1280,616)
 WEATHER_INTERVAL = 4*HOUR
 WEATHERS = {
@@ -59,6 +59,11 @@ TOWN_ZONES = {
     "station":{"name":"车站广场","cost":1400,"rect":(1260,100,1040,510),"color":(208,181,137),"feature":"更多游客乘车抵达，坏天气仍保留部分客流"},
     "fields":{"name":"山麓农田","cost":750,"rect":(2520,1150,930,1010),"color":(188,198,126),"feature":"定时生产谷物和鲜草，手动收获入库，天气影响产量"},
 }
+TOWN_ZONES.update({
+    'ranch':{'name':'南麓牧场','cost':1000,'rect':(1300,1800,1200,1500),'color':(166,196,124),'feature':'放牧草场、畜舍与乡间道路'},
+    'industry':{'name':'东部工业区','cost':1500,'rect':(3700,240,900,1250),'color':(169,180,177),'feature':'厂房、仓储与货运道路'},
+    'city':{'name':'现代都市区','cost':2000,'rect':(4800,240,1050,1500),'color':(158,183,204),'feature':'高层住宅、写字楼与城市广场'},
+})
 CARE_INTERVAL = 3 * HOUR
 CARE_HIRE_COST = 260
 CARE_WAGE = 8

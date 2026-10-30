@@ -14,6 +14,8 @@ from sanitation_view import SanitationView
 
 SCENE = pygame.Rect(0, 88, 1280, 616)
 ACTIVITY = pygame.Rect(210, 552, 860, 124)
+# 宠物可使用庄园南侧的完整空地；卫生设施仍沿用原活动范围。
+PET_ACTIVITY = pygame.Rect(40, 510, 1200, 170)
 BOWL = (318, 668)
 BATH = (1004, 664)
 TOY = (848, 674)

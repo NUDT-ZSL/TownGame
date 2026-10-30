@@ -78,10 +78,10 @@ def ground_tile(color,size=240):
 @lru_cache(maxsize=32)
 def road_mesh(style,mask):
     colors={'asphalt':(130,142,142),'stone':(190,188,167),'garden':(216,188,144)}
-    m=Mesh();m.box((0,0,1),(48,48,2),(180,190,159));m.plane((-21,-21,42,42),2.2,colors[style])
+    m=Mesh();m.box((0,0,1),(48,48,2),(195,198,178));m.plane((-23,-23,46,46),2.2,colors[style])
     for bit,(dx,dy) in enumerate(((0,-1),(1,0),(0,1),(-1,0))):
         if mask&(1<<bit):
-            m.plane((-21 if dy else (-24 if dx<0 else 0),-21 if dx else (-24 if dy<0 else 0),
-                     42 if dy else 24,24 if dy else 42),2.25,colors[style])
+            m.plane((-23 if dy else (-24 if dx<0 else 0),-23 if dx else (-24 if dy<0 else 0),
+                     46 if dy else 24,24 if dy else 46),2.25,colors[style])
             if style=='asphalt':m.plane((dx*15-1,dy*15-1,2 if dx else 3,3 if dx else 2),2.5,(238,227,177))
     return m

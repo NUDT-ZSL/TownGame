@@ -17,6 +17,7 @@ class SanitationView:
         self.last_seen_cleaned = None
         self.completion_until = 0
         self.pile_sprite=None
+        self.manager_angle=0
 
     def tick(self, dt):
         self.time += dt
@@ -76,10 +77,16 @@ class SanitationView:
             ratio = max(0,min(1,(now-job["start_ts"])/(job["sweep_ts"]-job["start_ts"])))
             u = job["from_u"]+(job["u"]-job["from_u"])*ratio
             v = job["from_v"]+(job["v"]-job["from_v"])*ratio
-            state = "前往清扫" if now < job["sweep_ts"] else "清扫中"
+            feeding = job.get("kind") == "feed"
+            state = ("前往喂食" if feeding else "前往清扫") if now < job["sweep_ts"] else ("喂食中" if feeding else "清扫中")
+            dx=(job["u"]-job["from_u"])*self.bounds.width
+            dy=(job["v"]-job["from_v"])*self.bounds.height
+            if state.startswith("前往") and math.hypot(dx,dy) > .01:
+                self.manager_angle=math.atan2(-dx,dy)
+            elif not state.startswith("前往"):
+                self.manager_angle=-math.pi/2  # 面向右手侧的清扫点 / 食盆。
         else:
-            u = max(.03,min(.97,meta["manager_u"]+math.sin(self.time*.35)*.035))
-            v = max(.10,min(.92,meta["manager_v"]+math.cos(self.time*.35)*.04))
+            u,v = meta["manager_u"],meta["manager_v"]
             state = "清扫完成" if self.time < self.completion_until else game.sanitation.status()
         x,y = self.point(u,v)
         # 脚步停在目标左侧，让扫帚刷毛覆盖粪便，而不是站在粪便上。
@@ -92,7 +99,7 @@ class SanitationView:
             return
         x,y,state = pose
         x,y = int(x),int(y)
-        walking = state in ("前往清扫","巡查")
+        walking = state in ("前往清扫","前往喂食")
         leg = math.sin(self.time*7)*5 if walking else 0
         sweeping = state in ("清扫中","清扫完成")
         sweep = math.sin(self.time*9)*12 if sweeping else math.sin(self.time*3)*4
@@ -118,12 +125,16 @@ class SanitationView:
         pygame.draw.circle(surface,(69,59,46),(x-5,y-66),2)
         pygame.draw.circle(surface,(69,59,46),(x+6,y-66),2)
         pygame.draw.arc(surface,(165,105,85),(x-4,y-64,10,8),math.pi,2*math.pi,2)
-        # 扫帚与清扫中的尘粒；动作不修改粪便数据。
+        # 喂食拿食盆，清扫拿扫帚；动画不修改库存。
         end = (int(x+37+sweep),y-1)
-        pygame.draw.line(surface,(126,92,55),hand,end,4)
-        pygame.draw.polygon(surface,(205,175,105),[(end[0]-4,end[1]-13),(end[0]+4,end[1]-13),(end[0]+13,end[1]+3),(end[0]-12,end[1]+3)])
-        for i in range(5):
-            pygame.draw.line(surface,(154,121,67),(end[0],end[1]-10),(end[0]-10+i*5,end[1]+2),1)
+        if state in ("前往喂食","喂食中"):
+            pygame.draw.ellipse(surface,(145,178,165),(hand[0]-8,hand[1]-3,28,12))
+            pygame.draw.ellipse(surface,(210,173,93),(hand[0]-5,hand[1]-4,22,7))
+        else:
+            pygame.draw.line(surface,(126,92,55),hand,end,4)
+            pygame.draw.polygon(surface,(205,175,105),[(end[0]-4,end[1]-13),(end[0]+4,end[1]-13),(end[0]+13,end[1]+3),(end[0]-12,end[1]+3)])
+            for i in range(5):
+                pygame.draw.line(surface,(154,121,67),(end[0],end[1]-10),(end[0]-10+i*5,end[1]+2),1)
         if sweeping:
             for i in range(5):
                 px = end[0]-15+(i*11+int(self.time*16))%40

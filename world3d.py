@@ -13,6 +13,16 @@ from town_grid import cell_center,world_to_cell,LANDMARKS
 from pet_art import palette_for
 
 
+def scaled_mesh(mesh,sx,sy,sz):
+    result=Mesh()
+    for i in range(0,len(mesh.data),10):
+        p=mesh.data[i:i+3];n=mesh.data[i+3:i+6]
+        normal=(n[0]/sx,n[1]/sy,n[2]/sz);length=math.sqrt(sum(v*v for v in normal)) or 1
+        result.vertex((p[0]*sx,p[1]*sy,p[2]*sz),tuple(v/length for v in normal),
+                      tuple(v*255 for v in mesh.data[i+6:i+9])+(mesh.data[i+9],))
+    return result
+
+
 @lru_cache(maxsize=64)
 def tree_mesh(species,variant,season):
     m=Mesh();rng=random.Random(identity_seed(f'{species}:{variant}','tree-model'))
@@ -27,7 +37,7 @@ def tree_mesh(species,variant,season):
     if species=='pine':
         for z,r,h in ((40,40,64),(70,31,57),(99,21,48)):m.cone((lean,0,z),r,h,leaf,10)
     else:
-        width={'oak':1.08,'birch':.65,'willow':1.18,'cherry':1.,'maple':1.12}[species]
+        width={'oak':1.12,'birch':.55,'willow':1.25,'cherry':.95,'maple':1.08}[species]
         for i in range(5):
             angle=i*math.tau/5;radius=18 if i else 0
             x=lean+math.cos(angle)*radius*width;y=math.sin(angle)*radius*width
@@ -42,6 +52,28 @@ def tree_mesh(species,variant,season):
                 a=i*math.tau/10;m.ellipsoid((lean+math.cos(a)*38,math.sin(a)*30,65),(8,8,28),leaf,6,5)
     if species=='birch':
         for z in range(14,75,13):m.box((0,5,z),(8,1.5,2),(107,111,93))
+    # 树冠顶点带风动标记，树干根部保持固定。
+    for i in range(9,len(m.data),10):m.data[i]=-1
+    return scaled_mesh(m,.85,.85,1.0)
+
+
+@lru_cache(maxsize=12)
+def tower_mesh(width,depth,floors):
+    m=Mesh();w=width*.88;d=depth*.82;height=floors*34
+    m.box((0,0,4),(width,depth,8),(190,197,192))
+    m.box((0,0,8+height/2),(w,d,height),(206,219,219))
+    for floor in range(floors):
+        z=24+floor*34
+        m.box((0,0,z-14),(w+3,d+3,3),(145,163,171))
+        for col in range(5):
+            x=-w*.4+col*w*.2
+            for side in (-1,1):m.box((x,side*(d/2+1),z),(w*.13,2,22),(101,156,180))
+        for col in range(3):
+            y=-d*.32+col*d*.32
+            for side in (-1,1):m.box((side*(w/2+1),y,z),(2,d*.21,22),(111,169,186))
+    m.box((0,0,height+11),(w+8,d+8,6),(101,128,145))
+    m.box((w*.2,0,height+19),(35,32,12),(157,174,178))
+    m.box((0,d/2+2,23),(23,3,30),(83,129,146))
     return m
 
 
@@ -87,7 +119,7 @@ def house_mesh(width,depth,kind,level=1,stage=4):
                 m.ellipsoid((side*width*.25,-depth*.18,63),(27,23,29),(115,160,98),10,6)
                 m.box((side*width*.25,depth*.25,15),(35,12,5),(181,150,110))
         return m
-    modern=spec and spec['family']=='modern';height=(78+level*8)*(1.5 if modern else 1)
+    modern=spec and spec['family']=='modern';height=(100+level*10)*(1.5 if modern else 1)
     if stage<4:height*=.25+.17*stage
     w,d=width*.88,depth*.83
     m.box((0,0,4),(width,depth,8),(200,190,162))
@@ -217,7 +249,7 @@ def pet_mesh(species,variant,rare,stage,sick,pose,frame):
 
 
 @lru_cache(maxsize=512)
-def person_mesh(identity,frame=0,manager=False):
+def person_mesh(identity,frame=0,manager=False,action=''):
     seed=identity_seed(identity,'person-model');m=Mesh()
     clothes=((180,128,139),(108,154,165),(198,164,107),(136,151,115),(155,140,174),(202,142,108))[seed%6]
     skin=((241,205,167),(219,178,137),(174,132,104))[seed//7%3];hair=((103,81,62),(72,66,58),(148,118,78))[seed//13%3]
@@ -236,7 +268,16 @@ def person_mesh(identity,frame=0,manager=False):
     if seed//37%3==1:m.ellipsoid((0,-8,60),(10,8,15),art.darken(clothes,.2),8,5)
     if manager:
         m.box((21,8,28),(3,3,55),(147,113,76));m.box((21,8,3),(17,12,5),(212,182,119))
-    return m
+    if action=='read':
+        m.box((0,14,40),(24,4,16),(116,151,132))
+        m.box((0,16.5,40),(20,1,13),(246,235,207))
+        m.box((0,17.5,40),(1,1,13),(167,154,130))
+    elif action=='farm':
+        # 挥动手持园艺工具；仅展示动作，不改变产量。
+        tilt=math.sin(frame*math.pi/2)*5
+        m.box((18,12+tilt,25),(3,3,40),(155,117,78))
+        m.box((18,13+tilt,4),(12,6,4),(113,130,118))
+    return scaled_mesh(m,.25,.25,.25)
 
 
 @lru_cache(maxsize=40)
@@ -252,7 +293,7 @@ def vehicle_mesh(kind,color):
             m.ellipsoid((side*15,y,8),(1,3,3),(176,183,169),8,5)
         for y in (-10,5):m.box((side*12.2,y,26),(1,10,10),(179,214,215))
         m.box((side*8,length/2+.5,13),(5,1,4),(252,236,178,1))
-    return m
+    return scaled_mesh(m,.56,1.5,.65)
 
 
 @lru_cache(maxsize=48)
@@ -304,12 +345,12 @@ class World3D:
         self.signature=signature;self.builds+=1;objects=[]
         def add(mesh,x,y,z=0,key=None,angle=0,scale=1):objects.append((mesh,(x,y,z),angle,scale,key))
         grass=courtyard.SEASONS[g.season]['grass'];terrain=Mesh()
-        terrain.box((1800,1200,-20),(3600,2400,40),art.darken(grass,.10))
-        for x in range(0,3600,240):
-            for y in range(0,2400,240):terrain.plane((x,y,240,240),.1,grass)
+        terrain.box((C.WORLD_SIZE[0]/2,C.WORLD_SIZE[1]/2,-20),(*C.WORLD_SIZE,40),art.darken(grass,.10))
+        for x in range(0,C.WORLD_SIZE[0],240):
+            for y in range(0,C.WORLD_SIZE[1],240):terrain.plane((x,y,240,240),.1,grass)
         # 大片草地的轻微色差与花草有实际位置，不随帧随机跳动。
         for i in range(480):
-            x=(i*337+97)%3600;y=(i*193+181)%2400
+            x=(i*337+97)%C.WORLD_SIZE[0];y=(i*193+181)%C.WORLD_SIZE[1]
             terrain.plane((x,y,5+i%6,2),.2,art.lighten(grass,.035 if i%3 else -.035))
         fx,fy,fw,fh=C.FARM_WORLD_RECT
         terrain.plane((fx+605,fy+24,70,fh-24),.5,(228,215,179))
@@ -336,6 +377,7 @@ class World3D:
         for i in range(3):add(vehicle_mesh('train',(111,167,154)),sx+510+i*95,sy+365,9,angle=-math.pi/2,scale=1.4)
         px,py,pw,ph=C.TOWN_ZONES['park']['rect'];water=Mesh()
         water.ellipsoid((0,0,0),((pw-200)/2,(ph-320)/2,2),(123,185,187),48,6)
+        for i in range(9,len(water.data),10):water.data[i]=-2
         add(water,px+pw/2,py+180+(ph-320)/2,1)
         terrain.box((px+pw/2,py+370,8),(pw-70,65,12),(211,176,124))
         for x in range(px+40,px+pw-35,27):terrain.box((x,py+370,15),(2,65,1),(173,142,100))
@@ -356,6 +398,17 @@ class World3D:
             x,y,w,h=LANDMARKS[index];zone=('homes','market','fields')[0 if index==0 else 1 if index==1 else 2]
             add(house_mesh(w,h*.68,kind,max(1,g.town.level(zone))),x+w/2,y+h*.58,key=('zone',zone))
         add(house_mesh(270,150,'商店',max(1,g.town.level('station'))),sx+265,sy+200,key=('zone','station'))
+        from districts import landmarks
+        for zone,kind,(x,y,w,h),level in landmarks():
+            mesh=house_mesh(w,h,kind,level)
+            if zone=='city':mesh=tower_mesh(w,h,4+level)
+            add(mesh,x+w/2,y+h/2,key=('zone',zone))
+        # 牧场围栏留出南北通道，草场与城市铺装有不同质感。
+        rx,ry,rw,rh=C.TOWN_ZONES['ranch']['rect']
+        for x in range(rx+40,rx+rw-40,80):
+            if abs(x-1800)>65:
+                terrain.box((x,ry+rh-80,18),(5,5,36),(198,171,120))
+                terrain.box((x+36,ry+rh-80,25),(76,3,4),(214,185,137))
         for b in g.town_buildings:
             if b['status']!='ready':continue
             width,depth=K.CATALOG[b['catalog_key']]['footprint']
@@ -382,23 +435,40 @@ class World3D:
     def objects(self,g,view,actors):
         objects=list(self.build_static(g,view))
         def add(mesh,x,y,key,angle=0,scale=1,z=0):objects.append((mesh,(x,y,z),angle,scale,key))
+        from signal_art import signal_mesh
+        from signals import phase
+        lamps=signal_mesh(phase(view.traffic.signals.time))
+        for cell in view.traffic.signals.junctions:add(lamps,*cell_center(*cell),None)
         for actor in actors:
             variant=pet_variant(actor.pet_id,g.meta);frame=int(actor.anim*6)%4
             mesh=pet_mesh(actor.species,variant,actor.rare,actor.stage,actor.sick,actor.pose,frame if actor.state in ('walk','eat','pet','bath') else 0)
             angle=math.atan2(-(actor.target[0]-actor.x),actor.target[1]-actor.y) if actor.state=='walk' else -math.pi/2*actor.facing
-            scale={'幼崽':.72,'少年':.86,'成年':1,'老年':.94}[actor.stage]
+            scale=.5*{'幼崽':.72,'少年':.86,'成年':1,'老年':.94}[actor.stage]
             add(mesh,*view.local_to_world((actor.x,actor.y)),('pet',actor.pet_id),angle,scale,z=abs(math.sin(actor.anim*5))*1.2 if actor.state in ('walk','pet') else 0)
+        people={p['person_id']:p for p in g.people}
+        if g.town.effective_level('ranch'):
+            herd=g.meta.get('settlement',{}).get('stock',{}).get('herd',0)
+            for i in range(min(12,herd)):
+                x=1510+(i%4)*140;y=2830+(i//4)*100
+                add(pet_mesh('绵羊',i%8,False,'成年',False,'idle',0),x,y,None,scale=.55)
         for actor in view.people.values():
             if not actor.visible:continue
             angle=0
             if actor.index<len(actor.points):
                 dx,dy=actor.points[actor.index][0]-actor.x,actor.points[actor.index][1]-actor.y;angle=math.atan2(-dx,dy)
-            add(person_mesh(actor.ident,int(actor.anim*7)%4 if actor.path else 0),actor.x,actor.y,('person',actor.ident),angle)
+            action=getattr(actor,'action','')
+            frame=int(actor.anim*(3 if action=='farm' else 7))%4 if actor.path or action=='farm' else 0
+            person=people.get(actor.ident,{})
+            child=person.get('role')=='居民' and g.now-person.get('born_ts',-1e20)<7*C.DAY
+            add(person_mesh(actor.ident,frame,False,action),actor.x,actor.y,('person',actor.ident),angle,scale=.6 if child else 1)
         for v in view.traffic.vehicles:add(vehicle_mesh(v.kind,tuple(v.color)),v.x,v.y,('vehicle',v.vehicle_id),math.radians(-v.angle+180))
         for pile in sorted(g.waste,key=lambda w:w['created_ts'])[:C.MAX_DRAWN_WASTE]:
             x,y=view.farm.sanitation.point(pile['u'],pile['v']);add(decoration_mesh('waste'),*view.local_to_world((x,y)),('waste',pile['waste_id']))
         pose=view.farm.sanitation.manager_pose(g)
-        if pose:add(person_mesh('farm-manager',int(view.time*7)%4,True),*view.local_to_world(pose[:2]),('manager',True))
+        if pose:
+            state=pose[2];feeding=state in ('前往喂食','喂食中')
+            frame=int(view.time*(4 if state in ('清扫中','喂食中') else 7))%4 if state in ('前往清扫','前往喂食','清扫中','喂食中') else 0
+            add(person_mesh('farm-manager',frame,not feeding),*view.local_to_world(pose[:2]),('manager',True),view.farm.sanitation.manager_angle)
         for b in g.town_buildings:
             if b['status']=='ready':continue
             stage=min(3,int(4*(g.now-b['placed_ts'])/max(1,b['finish_ts']-b['placed_ts'])))

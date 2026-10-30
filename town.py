@@ -46,7 +46,7 @@ class TownSystem:
         rng = seeded_rng(g.meta["town_seed"],when,f"{role}:{index}")
         ident = uuid.uuid5(uuid.NAMESPACE_URL,f"town:{g.meta['town_seed']}:{when:.6f}:{role}:{index}").hex
         destinations = [k for k in ("estate","market","park") if self.effective_level(k)]
-        return {"person_id":ident,"name":rng.choice(NAMES),"role":role,
+        person={"person_id":ident,"name":rng.choice(NAMES),"role":role,
                 "home_zone":"homes" if self.effective_level("homes") else "estate",
                 "destination":rng.choice(destinations),"entered_ts":when,
                 "leave_ts":when+C.TOWN_VISIT_STAY if role == "游客" else 0,
@@ -54,6 +54,10 @@ class TownSystem:
                 "spend_ts":when+C.TOWN_SPEND_DELAY if role == "游客" else 0,
                 "spent":False,"status":"游览" if role == "游客" else "生活",
                 "color_index":rng.randrange(6)}
+        if role=='居民':
+            person.update(born_ts=when-(12+index%12)*C.DAY,sex='女' if index%2 else '男',partner_id='',
+                pregnant_until=0,family_cooldown=when,job_id='',profession=('农民','工匠','牧民','建筑工')[index%4])
+        return person
 
     def upgrade_cost(self, zone_id):
         level = self.level(zone_id)
@@ -77,6 +81,11 @@ class TownSystem:
 
     def _residents(self):
         g = self.game
+        if 'settlement' in g.meta and g.meta['settlement'].get('population_mode','families')=='families':
+            # 自治人口由家庭增长，扩容不再直接凭空生成成年人。
+            for p in g.people:
+                if p['role']=='居民':p['home_zone']='homes' if self.effective_level('homes') else 'estate'
+            return
         target = C.TOWN_BASE_RESIDENTS+self.effective_level("homes")*C.TOWN_RESIDENTS_PER_LEVEL+self.game.construction.bonuses()['population']
         target=min(C.TOWN_MAX_PEOPLE,target)
         residents = [p for p in g.people if p["role"] == "居民"]

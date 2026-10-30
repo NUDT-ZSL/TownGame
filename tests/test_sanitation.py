@@ -316,6 +316,81 @@ class SanitationTests(unittest.TestCase):
         finally:
             other.db.close()
 
+    def test_manager_feeds_hungry_pet_only_after_work_and_consumes_stock(self):
+        g = self.game
+        pet = g.living[0]
+        pet.hunger = 60
+        stock = g.inventory.count("普通饲料")
+        self.do("farm_manager")
+        self.assertEqual(g.meta["manager_job"]["pet_id"],pet.pet_id)
+        self.assertEqual(g.sanitation.status(),"前往喂食")
+        self.shift(C.MANAGER_TRAVEL_SECONDS)
+        self.assertEqual(g.sanitation.status(),"喂食中")
+        self.assertEqual(g.inventory.count("普通饲料"),stock)
+        self.shift(C.MANAGER_SWEEP_SECONDS)
+        self.assertEqual(g.inventory.count("普通饲料"),stock-1)
+        self.assertGreater(pet.hunger,89)
+        self.assertEqual(g.meta["manager_fed"],1)
+        self.assertIsNone(g.meta["manager_job"])
+
+    def test_manager_missing_feed_still_cleans_and_never_invents_food(self):
+        g = self.game
+        pet = g.living[0]
+        pet.hunger = 20
+        g.inventory.take("普通饲料",g.inventory.count("普通饲料"))
+        self.pile()
+        self.do("farm_manager")
+        self.assertEqual(g.meta["manager_job"]["kind"],"clean")
+        self.shift(C.MANAGER_TRAVEL_SECONDS+C.MANAGER_SWEEP_SECONDS)
+        self.assertEqual(g.meta["manager_cleaned"],1)
+        self.assertEqual(g.meta["manager_fed"],0)
+        self.assertLess(pet.hunger,20)
+        self.assertIn("饲料不足",g.sanitation.status())
+
+    def test_manager_manual_feed_cancels_pending_feed_without_double_spend(self):
+        g = self.game
+        pet = g.living[0]
+        pet.hunger = 60
+        self.do("farm_manager")
+        self.shift(3)
+        self.do("feed",pet_id=pet.pet_id)
+        self.assertIsNone(g.meta["manager_job"])
+        stock = g.inventory.count("普通饲料")
+        self.shift(C.MANAGER_TRAVEL_SECONDS+C.MANAGER_SWEEP_SECONDS)
+        self.assertEqual(g.inventory.count("普通饲料"),stock)
+        self.assertEqual(g.meta["manager_fed"],0)
+
+    def test_manager_feed_reload_and_target_sale_are_safe(self):
+        g = self.game
+        pet = g.living[0]
+        pet.hunger = 60
+        ident = pet.pet_id
+        self.do("farm_manager")
+        g.db.close()
+        self.game = Game(Database(self.path),real_now=self.t+3)
+        self.assertEqual(self.game.meta["manager_job"]["pet_id"],ident)
+        self.do("sell_pet",pet_id=ident)
+        self.assertIsNone(self.game.meta["manager_job"])
+        validate(self.game.snapshot())
+
+    def test_manager_idle_is_stationary_and_travel_faces_destination(self):
+        import math
+        import pygame
+        from sanitation_view import SanitationView
+        g = self.game
+        self.do("farm_manager")
+        view = SanitationView(None,pygame.Rect(210,552,860,124))
+        before = view.manager_pose(g)
+        view.tick(30)
+        self.assertEqual(before[:2],view.manager_pose(g)[:2])
+        self.pile()
+        g.sanitation.wake()
+        with patch("sanitation_view.time.time",return_value=g.meta["real_anchor"]):
+            view.manager_pose(g)
+        job = g.meta["manager_job"]
+        expected = math.atan2(-(job["u"]-job["from_u"])*860,(job["v"]-job["from_v"])*124)
+        self.assertAlmostEqual(view.manager_angle,expected)
+
 
 if __name__ == "__main__":
     unittest.main()

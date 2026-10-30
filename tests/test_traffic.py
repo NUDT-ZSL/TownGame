@@ -28,8 +28,8 @@ class TrafficTests(unittest.TestCase):
     def test_lane_offset_keeps_right_hand_side(self):
         east=lane_points([(5,5),(6,5)])
         west=lane_points([(6,5),(5,5)])
-        self.assertTrue(all(y==cell_center(5,5)[1]+7 for x,y in east))
-        self.assertTrue(all(y==cell_center(5,5)[1]-7 for x,y in west))
+        self.assertTrue(all(y==cell_center(5,5)[1]+K.LANE_OFFSET for x,y in east))
+        self.assertTrue(all(y==cell_center(5,5)[1]-K.LANE_OFFSET for x,y in west))
 
     def test_turns_and_dead_end_uturn_remain_on_road(self):
         for path in ([(5,5),(6,5),(6,6)],[(5,5),(6,5),(6,4)],[(5,5),(6,5),(5,5)]):
@@ -113,6 +113,26 @@ class TrafficTests(unittest.TestCase):
         self.g.perform('remove_roads',cells=list(self.g.construction.grid.roads),real_now=self.g.meta['real_anchor'])
         walker.update(.25,p,self.g.construction.grid)
         self.assertFalse(walker.visible)
+
+    def test_walker_visits_multiple_connected_districts_and_reports_activity(self):
+        p=copy.deepcopy(self.g.people[0]); p['destination']='estate'; p['status']='生活'
+        walker=RoadWalker(p['person_id'],*cell_center(*PORTALS['estate']))
+        visited=set(); activities=set(); grid=self.g.construction.grid
+        for _ in range(18000):
+            walker.update(.25,p,grid)
+            if walker.activity and not walker.activity.startswith('前往'):
+                activities.add(walker.activity)
+                if walker.target and world_to_cell(walker.x,walker.y)==PORTALS[walker.target]:
+                    visited.add(walker.target)
+            self.assertIn(world_to_cell(walker.x,walker.y),grid.roads)
+        self.assertGreaterEqual(len(visited),3)
+        self.assertGreaterEqual(len(activities),3)
+
+    def test_departing_visitor_stays_at_station(self):
+        p=copy.deepcopy(self.g.people[0]); p.update(destination='station',status='离镇')
+        walker=RoadWalker(p['person_id'],*cell_center(*PORTALS['station']))
+        for _ in range(200): walker.update(.25,p,self.g.construction.grid)
+        self.assertEqual(walker.target,'station')
 
 
 if __name__=='__main__': unittest.main()

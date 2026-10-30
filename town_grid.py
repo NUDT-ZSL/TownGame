@@ -6,6 +6,7 @@ from town_catalog import GRID_SIZE, GRID_COLS, GRID_ROWS
 
 DIRECTIONS = ((0,-1),(1,0),(0,1),(-1,0))
 PORTALS = {"estate":(37,30),"station":(37,11),"homes":(16,13),"market":(60,13),"park":(21,30),"fields":(55,30)}
+PORTALS.update(ranch=(37,40),industry=(80,13),city=(104,13))
 LANDMARKS = ((250,290,180,195),(3200,330,180,185),(1300,220,940,280),(3200,1245,195,190))
 
 
@@ -53,6 +54,8 @@ def terrain(cell):
         return "estate"
     if any(intersects(rect,r) for r in LANDMARKS):
         return "landmark"
+    from districts import landmarks
+    if any(intersects(rect,r) for _,_,r,_ in landmarks()):return 'landmark'
     # 湖泊按格的最近点判定，避免格角侵入水面；保留木桥也是保护地形。
     px,py,pw,ph = C.TOWN_ZONES['park']['rect']
     cx,cy,rx,ry = px+pw/2,py+180+(ph-320)/2,(pw-200)/2,(ph-320)/2
@@ -85,6 +88,10 @@ def default_roads(now):
     edges=((PORTALS['station'],north),(west,north),(north,east),(west,PORTALS['homes']),
            (east,PORTALS['market']),(west,sw),(east,se),(sw,PORTALS['estate']),
            (PORTALS['estate'],se),(sw,PORTALS['park']),(se,PORTALS['fields']))
+    edges+=((PORTALS['estate'],PORTALS['ranch']),(PORTALS['market'],PORTALS['industry']),
+            (PORTALS['industry'],PORTALS['city']),((74,13),(74,70)),
+            (PORTALS['ranch'],(37,65)),((86,13),(86,32)),
+            (PORTALS['city'],(109,13)),((109,13),(109,38)))
     cells=set(c for a,b in edges for c in line_cells(a,b))
     return [dict(road_id=cell_key(c),cx=c[0],cy=c[1],road_style='asphalt',built_ts=now,paid=0) for c in sorted(cells)]
 

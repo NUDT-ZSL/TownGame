@@ -62,6 +62,8 @@ class BuildTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(dir=C.ROOT/'.test-output'); self.addCleanup(self.temp.cleanup)
         self.path=Path(self.temp.name)/'build.db'; self.t=1800000000.
         self.g=Game(Database(self.path),real_now=self.t,seed=7)
+        self.g.meta['settlement']['enabled']=False  # 此组隔离验证手动建设规则。
+        self.g.meta['settlement']['population_mode']='legacy'
         self.addCleanup(lambda:self.g.db.close())
         self.g.meta['coins']=100000
 
@@ -283,7 +285,8 @@ class BuildTests(unittest.TestCase):
             self.assertEqual(self.g.meta[key],state['meta'][key])
         self.assertTrue(all(self.g.construction.grid.connected_zones().values()))
         self.assertFalse(self.g.town_buildings)
-        self.assertTrue(self.path.with_name('build.pre-v5.db').exists())
+        from db import SCHEMA_VERSION
+        self.assertTrue(self.path.with_name(f'build.pre-v{SCHEMA_VERSION}.db').exists())
 
     def test_migration_failure_rolls_back_before_isolation(self):
         self.g.db.close(); conn=sqlite3.connect(self.path)

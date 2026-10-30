@@ -1,6 +1,8 @@
 """界面控制层：把玩家操作转换为 Game 命令，不直接修改实体。"""
 import random
 import time
+import math
+from physics import separate_pets
 import pygame
 import art
 import game_config as C
@@ -18,6 +20,7 @@ from pet_services import action_reason,attention_items
 from decoration_ui import DecorationController
 from game import GameError, utc_text, remaining
 from db import SaveError
+from settlement import capacity as resident_capacity
 
 
 class ManorApp:
@@ -54,6 +57,7 @@ class ManorApp:
         self.menu_open = False
         self.drag = None
         self.pan = None
+        self.camera_keys = set()
         self._last_pet_click = None
         self.cursor_hand = False
         self.focus_pet_id = next((p.pet_id for p in sorted(game.living, key=lambda p: p.pet_id)
@@ -126,7 +130,7 @@ class ManorApp:
         self._configure_layout()
         if hasattr(old,'close'):old.close()
         self._save_display();self.refresh()
-        self.notify('已切换立体小镇：Q/E 转向，↑/↓ 调整俯仰，F9 切换二维。' if mode=='3d' else '已切换二维视图，F9 返回立体小镇。')
+        self.notify('已切换立体小镇：按住鼠标右键拖动旋转视角，F9 切换二维。' if mode=='3d' else '已切换二维视图，F9 返回立体小镇。')
         if mode=='3d' and view.engine.failure:self.notify('显卡渲染不可用，正在使用软件三维；可按 F9 切换二维。')
 
     def set_window_size(self, size):
@@ -198,6 +202,7 @@ class ManorApp:
         return None
 
     def toggle_menu(self):
+        self.camera_keys.clear()
         self.drag = None
         self.pan = None
         self.menu_open = not self.menu_open
@@ -427,6 +432,7 @@ class ManorApp:
             pass
 
     def open(self, key, args=None, push=True):
+        self.camera_keys.clear()
         if key=='decorations':
             self.decorator.enter()
             return
@@ -490,7 +496,7 @@ class ManorApp:
         m.heading('场景视角')
         m.row([(label+(' · 已选' if self.display.scene_mode==mode else ''),lambda value=mode:self.set_scene_mode(value))
                for label,mode in (('立体三维','3d'),('经典二维','2d'))])
-        m.text('三维：Q/E 转动视角，↑/↓ 调整俯仰，拖拽移动，滚轮缩放。F9 切换视图。',ui.MUTED)
+        m.text('三维：按住鼠标右键拖动旋转视角，WASD或左键拖拽移动，滚轮缩放。F9 切换视图。',ui.MUTED)
         if getattr(self.courtyard,'is_3d',False):m.text('渲染：'+self.courtyard.engine.backend,ui.MUTED,size=13)
         m.heading('窗口显示')
         m.text('大窗口会展示更多场景，按钮保持合适大小；小窗口自动缩小界面。支持系统最大化。', ui.MUTED)
@@ -557,7 +563,7 @@ class ManorApp:
         if not attention:m.notice('目前经营状态良好，暂无待处理事项。')
         for label,page,args in attention:
             m.row([(label,lambda p=page,a=args:self._focus_attention(p,a))])
-        m.row([('批量收取与照护',lambda:self.open('care')),('自由装饰 D',self.decorator.enter)])
+        m.row([('批量收取与照护',lambda:self.open('care')),('自由装饰 Ctrl+D',self.decorator.enter)])
         m.heading('收支明细 · 最近100笔')
         if not rows:m.text('从当前版本开始记录收支，旧版历史不会补记。',ui.MUTED)
         for row in reversed(rows[-100:]):
@@ -971,7 +977,9 @@ class ManorApp:
             m.text("下次发薪  "+remaining(g.meta["manager_next_wage_ts"],g.now),ui.GREEN,16)
         job = g.meta["manager_job"]
         if job:
-            m.text(f"正在处理地块{job['building_id']+1}的粪便 / 剩余{max(0,int(job['end_ts']-g.now))}游戏秒",ui.GREEN)
+            task = "喂食动物" if job.get("kind") == "feed" else "清扫粪便"
+            m.text(f"地块{job['building_id']+1} · {task} / 剩余{max(0,int(job['end_ts']-g.now))}游戏秒",ui.GREEN)
+        m.text(f"累计喂食 {g.meta.get('manager_fed',0)} 次",ui.MUTED)
         m.gap(6)
         m.row([("解雇农场管理员" if g.meta["farm_manager"] else f"雇佣农场管理员 · {C.MANAGER_HIRE_COST} 金币",lambda:self.act("farm_manager"), True, ui.RED if g.meta['farm_manager'] else ui.GREEN, 'secondary' if g.meta['farm_manager'] else 'primary')])
         m.heading("手动清理与销售")
@@ -992,7 +1000,7 @@ class ManorApp:
             info = service.exposure(bid)
             m.heading(f"地块{bid+1} / 粪便{info['total']}份 / 陈旧{info['stale']}份")
             m.text(f"环境患病倍率×{info['hazard']:.1f}，每游戏小时额外清洁衰减{info['dirt']:.2f}",ui.RED if info["stale"] else ui.MUTED)
-        m.text("服务说明 · 管理员仅负责地面清扫；喂食和日常清洁由独立雇佣的饲养员负责，治疗需前往医院。",ui.MUTED,14)
+        m.text("服务说明 · 管理员负责清扫和喂食，喂食消耗普通饲料；饲养员同时提供日常清洁，治疗需前往医院。",ui.MUTED,14)
 
     def _page_craft(self):
         m = self.modal
@@ -1101,9 +1109,9 @@ class ManorApp:
         m = self.modal
         for title, text in [
             ("欢迎来到慢时光", "庭院里的伙伴会自由散步：单击抚摸并选中，连点两下或右键查看档案。底栏可喂食、洗澡、互动；把喂食盘里的食物拖到伙伴身上也能喂食。点击小屋管理建筑，地图查看全部地块；顶部菜单访问全部系统。滚轮翻阅弹窗，Esc关闭或取消拖拽，所有操作自动保存。"),
-            ("小镇大地图", "主场景按住鼠标左键或中键拖动，滚轮以鼠标位置缩放。右下小地图点击定位，Home键或右上返回庄园按钮回到宠物区。底栏小镇地图查看六大街区，中央庄园仍保留原有20块可建造地块。拖拽不会触发宠物互动。"),
-            ('立体小镇', '默认使用实体三维场景，Q/E转动视角，↑/↓调整俯仰。点击模型身体、屋顶或自己种植的树冠可操作对应对象，选中宠物的姓名标签也可点击。F9切换二维/三维，F10可查看渲染方式和显示设置；切换视图保留经营进度。'),
-            ('自由道路与房屋', '点击底栏建设或按B，1～6切换道路、住宅、商业、产业、公共和拆除。道路左键拖动、松手整笔扣费保存；快速移动会补齐格子。右键/中键移图，滚轮缩放，R旋转建筑，Ctrl+Z撤销最近道路。Esc取消预览，再次按Esc退出。右侧切风格与建筑，格线和地价可切换。'),
+            ("小镇大地图", "主场景按住鼠标左键或中键拖动，滚轮以鼠标位置缩放。右下小地图点击定位，Home键或右上返回庄园按钮回到宠物区。底栏小镇地图查看九大街区，中央庄园仍保留原有20块可建造地块。拖拽不会触发宠物互动。"),
+            ('立体小镇', '默认使用实体三维场景，按住鼠标右键拖动旋转视角。点击模型身体、屋顶或自己种植的树冠可操作对应对象，选中宠物的姓名标签也可点击。F9切换二维/三维，F10可查看渲染方式和显示设置；切换视图保留经营进度。'),
+            ('自由道路与房屋', '点击底栏建设或按B，1～6切换道路、住宅、商业、产业、公共和拆除。道路左键拖动、松手整笔扣费保存；快速移动会补齐格子。中键移图，三维右键拖动转视角、二维右键移图，滚轮缩放，R旋转建筑，Ctrl+Z撤销最近道路。Esc取消预览，再次按Esc退出。右侧切风格与建筑，格线和地价可切换。'),
             ('施工与道路中断', '临街才能放置建筑，水域、庄园安全边距和固定地标不可施工；未开放街区先支付原有开放费。建筑按游戏时间施工，离线也会完工。完工且通路才增加人口、税收和吸引力。拆除道路可能暂停街区消费、租金或农田收益，恢复后继续，不补发。默认道路免费赠送，拆除不退款；自建道路退原始费用50%，改铺费不参与退款。'),
             ('车辆与建设拆除', '汽车、公交和货车沿玩家路网右侧车道行驶，风雨雪减速，夜间亮灯。点击车辆查看轻量行程卡。路被拆后车辆改道或安全退场，行人改道或等待。拆楼需确认，施工中返还15%，完工返还30%；税收独立于实时车流结算。'),
             ("街区与流动人口", "点击街区开放或升级，最高3级。商业街增加游客消费，居民社区增加常住居民和每日租金，车站与公园吸引客流，农田每12游戏小时产出作物、12小时内手动收获。居民沿街生活，游客抵达、消费后离镇；点击行人查看档案。"),
@@ -1128,13 +1136,26 @@ class ManorApp:
         residents = sum(p["role"] == "居民" for p in g.people)
         guests = sum(p["role"] == "游客" for p in g.people)
         m.heading(f"慢时光小镇 Lv{g.town.town_level} / 常住{residents}人 · 流动{guests}人")
+        s=g.meta['settlement'];stock=s['stock']
+        m.heading('居民自治 / '+('运行中' if s['enabled'] else '已暂停'))
+        m.text(f"公共预算 {s['funds']} · 粮食 {stock['food']} · 种子 {stock['seed']} · 木材 {stock['wood']} · 石料 {stock['stone']} · 饲料 {stock['feed']} · 牲畜 {stock['herd']}",ui.GREEN)
+        m.text('居民使用公共资源修路、种地、养殖和建房，公共资源与玩家金币和仓库独立。',ui.MUTED)
+        m.text('孕期3游戏日；儿童7游戏日成长后参与工作。任务按游戏时间结算。',ui.MUTED)
+        m.row([('暂停自治' if s['enabled'] else '开启自治',lambda:self.act('autonomy')),('检查道路与任务',lambda:self.act('plan_roads'))])
+        m.text(f"家庭新生儿 {s['births']} · 已完成任务 {s['completed']} · 住房容量 {resident_capacity(g)}",ui.GOLD)
+        for job in s['jobs']:
+            worker=next((p['name'] for p in g.people if p['person_id']==job['worker']),'居民')
+            label={'road':'修路','open':'开放街区','build':'建房','crop':'种植','ranch':'养殖','gather':'采集','trade':'贸易','harvest':'收获'}[job['kind']]
+            m.text(f"{worker}：{label} / {C.TOWN_ZONES[job['zone']]['name']} / 剩余{remaining(job['due'],g.now)}",ui.MUTED)
+        if s['blocked']:m.text(s['blocked'],ui.GOLD)
+        for row in s['history'][-3:]:m.text(row['text'],ui.MUTED)
         m.text(f"累计接待{g.meta['town_visitors_total']}位游客 / 小镇经营累计收入{g.meta['town_income']}金币",ui.GOLD)
         m.text(f"当前{g.weather.current}，下一时段预计{g.weather.forecast()}，距变化{remaining(g.meta['next_weather_ts'],g.now)}",ui.GREEN)
         spec = C.WEATHERS[g.weather.current]
         m.text(f"天气客流系数{spec['traffic']:.0%}；大风雨雪影响户外清洁与健康，室内和寄养宠物受到保护。",ui.MUTED)
         m.row([("查看小镇全景",lambda:self.open("map")),("管理原庄园20块地",lambda:self.open("manor_map"))])
         bonus=g.construction.bonuses()
-        m.text(f"玩家建筑{len(g.town_buildings)}栋 / 每日建筑税收{bonus['tax']}金币 / 住宅额外容量{bonus['population']}人",ui.GOLD)
+        m.text(f"自建与居民建筑{len(g.town_buildings)}栋 / 每日建筑税收{bonus['tax']}金币 / 住宅额外容量{bonus['population']}人",ui.GOLD)
         m.row([('进入道路与建筑建设 B',self.builder.enter)])
         for zone_id,config in C.TOWN_ZONES.items():
             level = g.town.level(zone_id)
@@ -1182,7 +1203,15 @@ class ManorApp:
             m.text("这位行人已经离开小镇。",ui.MUTED)
             return
         m.heading(f"{p['name']} / {p['role']}")
+        if p['role']=='居民':
+            age=(g.now-p['born_ts'])/C.DAY
+            partner=next((other['name'] for other in g.people if other['person_id']==p['partner_id']),'暂无')
+            m.text(f"{'孩童' if age<7 else '成年'} · 年龄 {age:.1f} 游戏日 · 职业 {p['profession']} · 伴侣 {partner}",ui.GREEN)
+            if p['pregnant_until']:m.text('家庭新成员预计还有'+remaining(p['pregnant_until'],g.now),ui.GOLD)
         m.text(f"状态：{p['status']} / 目的地：{C.TOWN_ZONES[p['destination']]['name']}")
+        actor = self.courtyard.people.get(person_id)
+        if actor:
+            m.text('当前活动：'+actor.activity, ui.GREEN)
         m.text("抵达："+utc_text(p["entered_ts"]),ui.MUTED)
         if p["role"] == "游客":
             m.text(f"{'已完成本次消费' if p['spent'] else '尚在游览'} / 距离镇{remaining(p['leave_ts'],g.now)}",ui.GOLD)
@@ -1191,19 +1220,19 @@ class ManorApp:
 
     def _page_map(self):
         m,g = self.modal,self.game
-        m.text("3600×2400 小镇大地图 · 主界面拖拽平移、滚轮缩放；右下小地图点击定位。",ui.MUTED)
+        m.text(f"{C.WORLD_SIZE[0]}×{C.WORLD_SIZE[1]} 小镇大地图 · 主界面拖拽平移、滚轮缩放；右下小地图点击定位。",ui.MUTED)
         def preview(s,r):
             area = pygame.Rect(r.x+10,r.y+5,555,370)
             pygame.draw.rect(s,(191,211,168),area,border_radius=18)
             for key,config in C.TOWN_ZONES.items():
                 x,y,w,h = config["rect"]
-                zr = pygame.Rect(area.x+x/3600*area.w,area.y+y/2400*area.h,w/3600*area.w,h/2400*area.h)
+                zr = pygame.Rect(area.x+x/C.WORLD_SIZE[0]*area.w,area.y+y/C.WORLD_SIZE[1]*area.h,w/C.WORLD_SIZE[0]*area.w,h/C.WORLD_SIZE[1]*area.h)
                 pygame.draw.rect(s,config["color"],zr,border_radius=8)
                 self.fonts.text(s,config["name"],(zr.x+6,zr.centery-8),13,ui.TEXT)
             for road in g.roads:
-                pygame.draw.rect(s,(119,129,119),(area.x+road['cx']*48/3600*area.w,area.y+road['cy']*48/2400*area.h,7,7))
+                pygame.draw.rect(s,(119,129,119),(area.x+road['cx']*48/C.WORLD_SIZE[0]*area.w,area.y+road['cy']*48/C.WORLD_SIZE[1]*area.h,7,7))
             for b in g.town_buildings:
-                pygame.draw.rect(s,(180,125,88),(area.x+b['cx']*48/3600*area.w,area.y+b['cy']*48/2400*area.h,max(3,b['w']*48/3600*area.w),max(3,b['h']*48/2400*area.h)))
+                pygame.draw.rect(s,(180,125,88),(area.x+b['cx']*48/C.WORLD_SIZE[0]*area.w,area.y+b['cy']*48/C.WORLD_SIZE[1]*area.h,max(3,b['w']*48/C.WORLD_SIZE[0]*area.w),max(3,b['h']*48/C.WORLD_SIZE[1]*area.h)))
             self.fonts.text(s,"常住人口",(r.x+610,r.y+40),20,ui.GREEN)
             self.fonts.text(s,str(sum(p["role"] == "居民" for p in g.people))+" 人",(r.x+610,r.y+79),30,ui.TEXT)
             self.fonts.text(s,"流动游客",(r.x+610,r.y+140),20,ui.GREEN)
@@ -1351,6 +1380,8 @@ class ManorApp:
         self.handle(event)
 
     def handle(self, event):
+        if event.type == pygame.KEYUP:
+            self.camera_keys.discard(event.key)
         if event.type == pygame.QUIT:
             self.running = False
             return
@@ -1368,6 +1399,7 @@ class ManorApp:
                 self.open('notifications')
                 return
         if event.type == getattr(pygame, "WINDOWFOCUSLOST", -1):
+            self.camera_keys.clear()
             self._cancel_drag()
             self.pan = None
             self.builder.stroke=self.builder.pan=None
@@ -1392,14 +1424,56 @@ class ManorApp:
                 return
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1 and self.notification_button.click(event.pos):
             return
+        # 三维右键拖动围绕当前中心旋转。短按仍用于原有的右键操作。
+        if getattr(self.courtyard,'is_3d',False):
+            orbit = self.pan if self.pan and self.pan.get('orbit') else None
+            if orbit and event.type == pygame.MOUSEMOTION:
+                start, last = orbit['start'], orbit['last']
+                if not orbit['moving'] and (event.pos[0]-start[0])**2+(event.pos[1]-start[1])**2 >= 36:
+                    orbit['moving'] = True
+                    last = start
+                if orbit['moving']:
+                    self.courtyard.camera.orbit((event.pos[0]-last[0])*.3, (event.pos[1]-last[1])*.2)
+                orbit['last'] = event.pos
+                return
+            if orbit and event.type == pygame.MOUSEBUTTONUP and event.button == 3:
+                self.pan = None
+                if not orbit['moving']:
+                    if self.builder.active:
+                        self.builder.stroke = None
+                        self.builder.selected = None
+                    elif not self.decorator.active:
+                        actor = self.courtyard.pet_at(orbit['start'], self.actor_order)
+                        if actor:
+                            self.focus_pet_id = actor.pet_id
+                            self._sync_actors()
+                            self.open('pet', {'pet_id': actor.pet_id})
+                return
+            if event.type == pygame.MOUSEBUTTONDOWN and event.button == 3:
+                if self.drag:
+                    self._cancel_drag()
+                    return
+                pos = event.pos
+                view = self.courtyard
+                overlay = any(rect.collidepoint(pos) for rect in (view.home_button, view.overview_rect, view.legend_rect))
+                if self.builder.active:
+                    overlay = overlay or self.builder.panel_rect().collidepoint(pos)
+                if self.decorator.active:
+                    overlay = overlay or self.decorator.panel().collidepoint(pos)
+                if view.viewport.collidepoint(pos) and not overlay:
+                    if self.builder.active:
+                        self.builder.stroke = None
+                    self.pan = {'start': pos, 'last': pos, 'moving': False, 'button': 3, 'orbit': True}
+                return
+            if orbit and event.type == pygame.KEYDOWN and event.key in (pygame.K_ESCAPE, pygame.K_b, pygame.K_d):
+                self.pan = None
         if event.type==pygame.KEYDOWN and event.key==pygame.K_b:
             self.builder.toggle()
             return
-        if event.type==pygame.KEYDOWN and getattr(self.courtyard,'is_3d',False) and event.key in (pygame.K_q,pygame.K_e,pygame.K_UP,pygame.K_DOWN):
-            self.courtyard.camera.orbit(-15 if event.key==pygame.K_q else 15 if event.key==pygame.K_e else 0,
-                                       5 if event.key==pygame.K_UP else -5 if event.key==pygame.K_DOWN else 0)
+        if event.type==pygame.KEYDOWN and event.key in (pygame.K_w,pygame.K_a,pygame.K_s,pygame.K_d) and not getattr(event,'mod',0)&pygame.KMOD_CTRL:
+            self.camera_keys.add(event.key)
             return
-        if event.type==pygame.KEYDOWN and event.key==pygame.K_d:
+        if event.type==pygame.KEYDOWN and event.key==pygame.K_d and getattr(event,'mod',0)&pygame.KMOD_CTRL:
             self.decorator.exit() if self.decorator.active else self.decorator.enter()
             return
         if self.decorator.active:
@@ -1469,14 +1543,20 @@ class ManorApp:
         now = time.monotonic()
         dt = min(.25, max(0.0, now-self.last_frame)) if self.last_frame else 1/C.FPS
         self.last_frame = now
-        self.courtyard.tick(dt,self.game)
+        if not self.modal and not self.menu_open:
+            dx=int(pygame.K_d in self.camera_keys)-int(pygame.K_a in self.camera_keys)
+            dy=int(pygame.K_s in self.camera_keys)-int(pygame.K_w in self.camera_keys)
+            length=math.hypot(dx,dy)
+            if length:self.courtyard.camera.pan(-dx/length*420*dt,-dy/length*420*dt)
+        self.courtyard.tick(dt,self.game,self.actor_order)
         night = courtyard.CourtyardView.light_key(self.game.now) == "night"
         for actor in self.actor_order:
             companions=[(other.x,other.y) for other in self.actor_order if other is not actor]
             companions += [self.courtyard.screen_to_local(self.courtyard.camera.world_to_screen((p.x,p.y)))
                            for p in self.courtyard.people.values() if p.visible]
-            actor.update(dt, courtyard.ACTIVITY, self.ui_rng, night,
+            actor.update(dt, courtyard.PET_ACTIVITY, self.ui_rng, night,
                          {'food':courtyard.BOWL,'toy':courtyard.TOY,'companions':companions})
+        separate_pets(self.actor_order,courtyard.PET_ACTIVITY)
         if now-self.last_tick >= 1:
             persist = now-self.last_save >= C.SAVE_INTERVAL
             try:

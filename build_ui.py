@@ -28,7 +28,7 @@ class BuildController:
         if hasattr(self.app,'decorator'):self.app.decorator.exit()
         self.app.close_modal(); self.app.menu_open=False; self.app.pan=None; self.app.drag=None
         self.active=True; self.stroke=None; self.pan=None
-        self.app.notify('建设：左键铺路/放置，右键或中键移图，滚轮缩放，Esc取消。')
+        self.app.notify('建设：左键铺路/放置，中键移图，右键拖动旋转视角，滚轮缩放，Esc取消。' if getattr(self.app.courtyard,'is_3d',False) else '建设：左键铺路/放置，右键或中键移图，滚轮缩放，Esc取消。')
 
     def exit(self):
         self.active=False; self.stroke=None; self.pan=None; self.app.pan=None
@@ -215,7 +215,7 @@ class BuildController:
         f.text(surface,reason,(20,793),16,ui.RED if p and (p.get('reason') or not p.get('valid',True) or not p.get('affordable',True)) else ui.MUTED)
         zone=zone_for(self.cell())
         status='道路通达' if not zone or g.construction.connected(zone) else '道路未连通'
-        f.text(surface,f"金币 {g.meta['coins']} · 人口 {len(g.people)} · {status} · R旋转 / 右键中键移图 / 滚轮缩放",(20,829),13,ui.MUTED)
+        f.text(surface,f"金币 {g.meta['coins']} · 人口 {len(g.people)} · {status} · R旋转 / " + ("右键转视角 / 中键移图" if is3d else "右键中键移图") + " / 滚轮缩放",(20,829),13,ui.MUTED)
         if not g.meta['build_guide_dismissed']:
             f.text(surface,'①拖动铺路 → ②临街建住宅 → ③等待施工并观察车流',(525,796),14,ui.GOLD)
             self.guide_button.draw(surface,f)

@@ -127,7 +127,10 @@ class App3DTests(unittest.TestCase):
     def test_render_modes_and_camera_keys_do_not_mutate_saved_game(self):
         app=self.app;g=self.g;app.draw();before=g.snapshot();rng=g.rng.getstate()
         people=app.courtyard.people;traffic=app.courtyard.traffic
-        yaw=app.courtyard.camera.yaw;app.handle(pygame.event.Event(pygame.KEYDOWN,key=pygame.K_e))
+        yaw=app.courtyard.camera.yaw
+        app.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN,button=3,pos=(600,400)))
+        app.handle(pygame.event.Event(pygame.MOUSEMOTION,pos=(660,400),rel=(60,0),buttons=(0,0,1)))
+        app.handle(pygame.event.Event(pygame.MOUSEBUTTONUP,button=3,pos=(660,400)))
         self.assertNotEqual(yaw,app.courtyard.camera.yaw)
         app.handle(pygame.event.Event(pygame.KEYDOWN,key=pygame.K_F9));self.assertFalse(getattr(app.courtyard,'is_3d',False));app.draw()
         app.handle(pygame.event.Event(pygame.KEYDOWN,key=pygame.K_F9));self.assertTrue(app.courtyard.is_3d);app.draw()
@@ -181,6 +184,74 @@ class App3DTests(unittest.TestCase):
         self.assertEqual(g.snapshot(),before);self.assertEqual(g.rng.getstate(),rng)
         app.close_modal();app.draw();point=self.visible_pixel(('sanitation',True))
         app._handle_click(point);self.assertEqual(app.page[0],'sanitation')
+
+
+class OrbitInputTests(unittest.TestCase):
+    """输入行为不需要 GPU；通过真实事件路径验证软件后端。"""
+    def setUp(self):
+        self.temp=tempfile.TemporaryDirectory();self.folder=Path(self.temp.name)
+        self.g=Game(Database(self.folder/'game.db'),real_now=1800000000.,seed=42)
+        with patch('town_view3d.Renderer3D',side_effect=lambda *_: Renderer3D(software=True)):
+            self.app=ManorApp(self.g,settings_path=self.folder/'ui.json',scene_mode='3d')
+        self.camera=self.app.courtyard.camera
+
+    def tearDown(self):
+        self.app.courtyard.close();self.g.db.close();ui.display=None;pygame.quit();self.temp.cleanup()
+
+    def down(self,button=3,pos=(500,400)):
+        self.app.handle(pygame.event.Event(pygame.MOUSEBUTTONDOWN,button=button,pos=pos))
+
+    def move(self,pos,rel=(0,0),buttons=(0,0,1)):
+        self.app.handle(pygame.event.Event(pygame.MOUSEMOTION,pos=pos,rel=rel,buttons=buttons))
+
+    def up(self,button=3,pos=(600,400)):
+        self.app.handle(pygame.event.Event(pygame.MOUSEBUTTONUP,button=button,pos=pos))
+
+    def test_orbit_wraps_full_circle_and_pitch_is_clamped(self):
+        total=0
+        for _ in range(14):
+            before=self.camera.yaw;self.down();self.move((600,400),rel=(100,0));self.up()
+            total+=abs((self.camera.yaw-before+math.pi)%(2*math.pi)-math.pi)
+        self.assertGreater(total,2*math.pi)
+        self.down();before=self.camera.pitch;yaw=self.camera.yaw
+        self.move((500,450),rel=(0,50))
+        self.assertGreater(self.camera.pitch,before)
+        self.assertEqual(self.camera.yaw,yaw)
+        before=self.camera.pitch;self.move((500,400),rel=(0,-50))
+        self.assertLess(self.camera.pitch,before)
+        self.assertEqual(self.camera.yaw,yaw)
+        self.move((500,2000),rel=(0,1550))
+        self.assertGreaterEqual(self.camera.pitch,math.radians(30))
+        self.assertLessEqual(self.camera.pitch,math.radians(68));self.up(pos=(500,2000))
+
+    def test_release_focus_loss_and_left_pan(self):
+        self.down();self.move((600,400),rel=(100,0));self.up()
+        yaw=self.camera.yaw;self.move((700,400),rel=(100,0),buttons=(0,0,0));self.assertEqual(yaw,self.camera.yaw)
+        self.down();self.move((600,400),rel=(100,0))
+        self.app.handle(pygame.event.Event(pygame.WINDOWFOCUSLOST))
+        yaw=self.camera.yaw;self.move((700,400),rel=(100,0),buttons=(0,0,0));self.assertEqual(yaw,self.camera.yaw)
+        center=(self.camera.cx,self.camera.cy);self.down(button=1)
+        self.move((600,400),rel=(100,0),buttons=(1,0,0));self.up(button=1)
+        self.assertNotEqual(center,(self.camera.cx,self.camera.cy));self.assertEqual(yaw,self.camera.yaw)
+
+    def test_release_outside_window_stops_orbit(self):
+        self.down();self.move((600,400),rel=(100,0))
+        self.app.handle_native(pygame.event.Event(pygame.MOUSEBUTTONUP,button=3,pos=(-1,-1)))
+        yaw=self.camera.yaw;self.move((700,400),rel=(100,0),buttons=(0,0,0))
+        self.assertEqual(yaw,self.camera.yaw)
+
+    def test_short_right_click_keeps_pet_action(self):
+        actor=self.app.actor_order[0]
+        with patch.object(self.app.courtyard,'pet_at',return_value=actor):
+            self.down();self.up(pos=(500,400))
+        self.assertEqual(self.app.page,('pet',{'pet_id':actor.pet_id}))
+
+    def test_orbit_in_construction_and_decoration_modes(self):
+        for controller in (self.app.builder,self.app.decorator):
+            controller.enter()
+            yaw=self.camera.yaw;self.down();self.move((600,400),rel=(100,0));self.up()
+            self.assertNotEqual(yaw,self.camera.yaw)
+            controller.exit()
 
 
 if __name__=='__main__':unittest.main()

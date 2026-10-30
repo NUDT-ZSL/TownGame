@@ -17,6 +17,7 @@ from sanitation import SanitationSystem
 from weather import WeatherSystem
 from town import TownSystem
 from town_build import TownBuildSystem
+from settlement import Settlement,defaults as settlement_defaults
 from pet_services import action_reason
 
 
@@ -44,12 +45,18 @@ class Game:
         self.weather = WeatherSystem(self)
         self.town = TownSystem(self)
         self.construction = TownBuildSystem(self)
+        self.settlement = Settlement(self)
         current = time.time() if real_now is None else real_now
         state = self.db.load()
         if state:
             self._load(state)
             # 升级前的离线时段不追溯生成粪便；新排泄计时从本次打开时开始。
             target = self.now+max(0,current-self.meta["real_anchor"])*(C.SPEED if self.meta["mode"] == "fast" else 1)
+            if 'settlement' not in state['meta']:
+                # 新功能从本次升级后开始，不重放升级前的公共建设和生育。
+                self.meta['settlement']['next_tick']=target+C.HOUR
+                self.meta['settlement']['last_day']=int(target//C.DAY)
+                self.meta['settlement']['next_herd_birth']=target+3*C.DAY
             if "town_open_ts" not in state["meta"]:
                 self.weather.defaults(target,reset=True)
                 self.town.defaults(target,reset=True)
@@ -134,6 +141,7 @@ class Game:
         self.town.defaults()
         self.roads,self.town_buildings = None,[]
         self.construction.defaults()
+        settlement_defaults(self)
 
     def snapshot(self):
         return copy.deepcopy({"meta": self.meta, "pets": [p.to_dict() for p in self.pets.values()],
@@ -164,6 +172,7 @@ class Game:
         self.roads = copy.deepcopy(state.get('roads')) if 'road_revision' in state['meta'] else None
         self.town_buildings = copy.deepcopy(state.get('town_buildings',[]))
         self.construction.defaults()
+        settlement_defaults(self)
 
     def save(self):
         s = self.rng.getstate()
@@ -206,6 +215,7 @@ class Game:
                 boundaries += self.sanitation.boundaries()
                 boundaries += [self.meta["next_weather_ts"]]+self.town.boundaries()
                 boundaries += self.construction.boundaries()
+                boundaries += self.settlement.boundaries()
                 if self.meta["caretaker"]:
                     boundaries.append(self.meta["next_care_ts"])
                 boundaries += [e["expiry_ts"] for e in self.events if e["status"] == "待处理"]
@@ -226,6 +236,7 @@ class Game:
                 self.weather.tick()
                 self.construction.tick()
                 self.town.tick()
+                self.settlement.tick()
                 self.social.deliver()
                 self.sanitation.tick()
                 if end >= self.meta["next_fight_ts"]:
@@ -704,6 +715,13 @@ class Game:
 
     def _act_upgrade_zone(self, zone_id):
         return self.town.upgrade(zone_id)
+
+    def _act_autonomy(self):
+        return self.settlement.toggle()
+
+    def _act_plan_roads(self):
+        self.settlement.plan()
+        return '已检查道路与公共任务，请在小镇经营页查看任务和预算。'
 
     def _act_build_roads(self,cells,style='asphalt'):
         return self.construction.edit_roads(cells,style)

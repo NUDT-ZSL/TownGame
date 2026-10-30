@@ -22,7 +22,7 @@ MENU_PAGES = (("宠物名册", "pets"), ("加工坊", "craft"), ("邻里订单",
               ("道路与建筑建设 B", "build"),
               ("永久日志", "logs"), ("慢时光指南", "help"), ("今日庄园", "today"),
               ("通知中心 N", "notifications"), ("显示与字号 F10", "settings"),
-              ('批量照护','care'),('经营与关注','dashboard'),('自由装饰 D','decorations'))
+              ('批量照护','care'),('经营与关注','dashboard'),('自由装饰 Ctrl+D','decorations'))
 STATUS_COLORS = {"正常": ui.GREEN, "生病": ui.RED, "受伤": ui.RED, "老年": ui.GOLD, "寄养中": (96, 132, 172)}
 
 

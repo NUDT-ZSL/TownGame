@@ -26,3 +26,9 @@ pet_manor_source.zip
 .vscode/
 .DS_Store
 Thumbs.db
+.tools/
+native-godot/.godot/
+native-godot/bin/
+native-godot/obj/
+native-godot/Content/world.json
+native-godot/Content/legacy-save.json

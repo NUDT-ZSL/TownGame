@@ -30,7 +30,7 @@ class CameraTests(unittest.TestCase):
         c.pan(100000,100000)
         self.assertEqual((c.x,c.y),(0,0))
         c.pan(-100000,-100000)
-        self.assertEqual((c.x,c.y),(3600-1280,2400-616))
+        self.assertEqual((c.x,c.y),(C.WORLD_SIZE[0]-1280,C.WORLD_SIZE[1]-616))
         c.center((1800,1200))
         self.assertEqual(c.world_to_screen((1800,1200)),(640,396))
 
@@ -59,6 +59,8 @@ class TownWeatherTests(unittest.TestCase):
         self.path = Path(self.temp.name)/"town.db"
         self.t = 1800000000.0
         self.g = Game(Database(self.path),real_now=self.t,seed=8)
+        self.g.meta['settlement']['enabled']=False  # 此组隔离验证原有街区收支与迁入。
+        self.g.meta['settlement']['population_mode']='legacy'
         self.g.meta["coins"] = 100000
         self.g.meta["next_visitor_ts"] = self.t+1000*C.DAY
         for p in self.g.living:
@@ -77,7 +79,7 @@ class TownWeatherTests(unittest.TestCase):
         self.g.advance(self.g.meta["real_anchor"]+delta)
 
     def test_initial_world_has_six_districts_and_visible_population(self):
-        self.assertEqual(len(self.g.town_zones),6)
+        self.assertEqual(len(self.g.town_zones),len(C.TOWN_ZONES))
         self.assertEqual(self.g.town.level("estate"),1)
         self.assertEqual(sum(z["level"] for z in self.g.town_zones),1)
         self.assertEqual(sum(p["role"] == "居民" for p in self.g.people),4)

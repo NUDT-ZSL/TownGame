@@ -137,6 +137,7 @@ class PetActor:
     hunger: float = 100
     happy: float = 80
     behavior_note: str = '自在休息'
+    arrival_action: str = ''
 
     def sync_from_pet(self, pet, now):
         self.name = pet.name
@@ -157,6 +158,15 @@ class PetActor:
         self.state_duration = duration if duration is not None else 1.5
         self.state_time = self.state_duration
         self.target = (self.x, self.y)
+        self.arrival_action = ''
+
+    def _walk_to(self, target, bounds):
+        self.target = (max(bounds.left+30, min(bounds.right-30, target[0])),
+                       max(bounds.top+30, min(bounds.bottom-4, target[1])))
+        speed = 48.0*(.7 if self.sick else 1.0)*(1.15 if self.personality in ('粘人','活泼') else .85 if self.personality=='高冷' else 1)
+        self.state = 'walk'
+        self.state_duration = math.hypot(self.target[0]-self.x, self.target[1]-self.y)/speed+2
+        self.state_time = self.state_duration
 
     def update(self, dt, bounds, rng, night=False, context=None):
         dt = max(0.0, min(dt, .25))
@@ -177,9 +187,11 @@ class PetActor:
             dx, dy = tx-self.x, ty-self.y
             distance = math.hypot(dx, dy)
             if distance < 3 or self.state_time <= 0:
-                self.state, self.state_time = "idle", rng.uniform(1.8, 4.2)
+                self.state = 'pet' if distance < 3 and self.arrival_action == 'play' else 'idle'
+                self.state_time = rng.uniform(2.0, 4.2)
+                self.arrival_action = ''
                 return
-            speed = 30.0*(.7 if self.sick else 1.0)*(1.15 if self.personality in ('粘人','活泼') else .85 if self.personality=='高冷' else 1)
+            speed = 48.0*(.7 if self.sick else 1.0)*(1.15 if self.personality in ('粘人','活泼') else .85 if self.personality=='高冷' else 1)
             step = min(distance, speed*dt)
             self.x += dx/distance*step
             self.y += dy/distance*step
@@ -195,6 +207,7 @@ class PetActor:
 
     def _decide(self, bounds, rng, night, context=None):
         roll = rng.random()
+        self.arrival_action = ''
         if context and not night and not self.sick:
             target=None
             neighbors=context.get('companions',[])
@@ -203,20 +216,27 @@ class PetActor:
                          (bounds.left+40,bounds.bottom-12),(bounds.right-40,bounds.bottom-12)]
                 target=max(corners,key=lambda p:min(math.hypot(p[0]-x,p[1]-y) for x,y in neighbors))
                 self.behavior_note='避开热闹，寻找安静角落'
-            elif self.hunger<45 or self.personality=='吃货' and roll<.7:
+            elif self.hunger<45 and roll<.7 or self.personality=='吃货' and roll<.7:
                 target=context.get('food');self.behavior_note='靠近食盆，等候喂食'
             elif self.personality in ('粘人','活泼') and self.happy>=60 and roll<(.85 if self.personality=='活泼' else .65):
                 toy=context.get('toy')
                 if toy:
                     target=(toy[0]+rng.uniform(-48,48),toy[1]+rng.uniform(-24,24))
                     self.behavior_note='围着玩具蹦跳玩耍'
+                    self.arrival_action='play'
             elif self.personality=='高冷' and roll<.5:
                 self.state,self.state_time='idle',rng.uniform(3,6)
                 self.behavior_note='独自观察小镇'
                 return
+            elif roll > .7:
+                nearby = [(x,y) for x,y in neighbors if bounds.collidepoint(x,y)
+                          and math.hypot(x-self.x,y-self.y) > 70]
+                if nearby:
+                    x,y = rng.choice(nearby)
+                    target=(x+rng.uniform(-45,45),y+rng.uniform(-20,20))
+                    self.behavior_note='靠近伙伴，结伴散步'
             if target:
-                self.target=(max(bounds.left+30,min(bounds.right-30,target[0])),max(bounds.top+30,min(bounds.bottom-4,target[1])))
-                self.state,self.state_time='walk',6
+                self._walk_to(target, bounds)
                 return
         self.behavior_note='夜间休息' if night else '自在散步'
         sleep_chance = .16+(.20 if night else 0)+(.20 if self.sick else 0)
@@ -224,10 +244,8 @@ class PetActor:
             self.state, self.state_duration = "sleep", rng.uniform(4.0, 8.5)
             self.state_time = self.state_duration
         elif roll < sleep_chance+.52:
-            self.target = (rng.uniform(bounds.left+30, bounds.right-30),
-                           rng.uniform(bounds.top+24, bounds.bottom-4))
-            self.state, self.state_duration = "walk", 6.0
-            self.state_time = self.state_duration
+            self._walk_to((rng.uniform(bounds.left+30, bounds.right-30),
+                           rng.uniform(bounds.top+30, bounds.bottom-4)), bounds)
         else:
             self.state, self.state_time = "idle", rng.uniform(2.0, 5.0)
 

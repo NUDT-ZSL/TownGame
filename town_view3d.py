@@ -110,7 +110,7 @@ class TownView3D(TownView):
         super()._mini(s,g)
         inner=self.mini_inner
         corners=[camera.screen_to_world(p) for p in (self.viewport.topleft,self.viewport.topright,self.viewport.bottomright,self.viewport.bottomleft)]
-        points=[(inner.x+max(0,min(3600,p[0]))/3600*inner.w,inner.y+max(0,min(2400,p[1]))/2400*inner.h) for p in corners]
+        points=[(inner.x+max(0,min(C.WORLD_SIZE[0],p[0]))/C.WORLD_SIZE[0]*inner.w,inner.y+max(0,min(C.WORLD_SIZE[1],p[1]))/C.WORLD_SIZE[1]*inner.h) for p in corners]
         pygame.draw.lines(s,(218,165,77),True,points,2)
 
     def _hover_tip(self,screen,g):
@@ -127,11 +127,12 @@ class TownView3D(TownView):
             elif kind=='prop':text=courtyard.PROP_LABELS[ident]
             elif kind=='person':
                 person=next((p for p in g.people if p['person_id']==ident),None)
-                if person:text=person.get('name','小镇'+person['role'])+' · 点击查看'
+                actor=self.people.get(ident)
+                if person:text=person.get('name','小镇'+person['role'])+' · '+(actor.activity if actor else '点击查看')
             elif kind=='decoration':
                 from decorations import CATALOG
                 row=next((d for d in g.meta.get('decorations',[]) if d['id']==ident),None)
-                if row:text=CATALOG[row['kind']][0]+' · D 装饰模式可移动'
+                if row:text=CATALOG[row['kind']][0]+' · Ctrl+D 装饰模式可移动'
             elif kind=='pet':
                 actor=next((a for a in self._actors if a.pet_id==ident),None)
                 if actor:text=actor.name+' · '+{'eat':'正在吃东西','pet':'开心互动','bath':'正在洗澡','sleep':'正在睡觉'}.get(actor.state,actor.behavior_note)
@@ -145,7 +146,7 @@ class TownView3D(TownView):
         self.light=day_phase(g.now);self.last_game=g;self._actors=actors
         if not self.people or self.traffic.revision!=g.meta['road_revision']:self.tick(0,g)
         objects=self.world.objects(g,self,actors)
-        screen.blit(self.engine.draw(self.camera,objects,self.light=='night'),self.viewport.topleft)
+        screen.blit(self.engine.draw(self.camera,objects,self.light=='night',self.time),self.viewport.topleft)
         self.label_hits=[];self.hit_bounds={}
         for mesh,pos,angle,scale,key in objects:
             if key is not None:self.hit_bounds[key]=self.object_bounds(mesh,pos,angle,scale)
@@ -179,7 +180,7 @@ class TownView3D(TownView):
         self.legend_rect.w=414
         art.clay_panel(screen,self.legend_rect,ui.PANEL,12,ui.LINE,shadow_alpha=20)
         self.fonts.text(screen,f'立体小镇 · {g.weather.current} · {len(g.people)}人在镇上',(40,110),17,ui.GREEN)
-        self.fonts.text(screen,'拖拽移动 · 滚轮缩放 · Q/E转向 · ↑/↓俯仰 · F9二维',(40,137),12,ui.MUTED)
+        self.fonts.text(screen,'WASD/左键移图 · 滚轮缩放 · 右键旋转 · F9二维',(40,137),12,ui.MUTED)
         self._mini(screen,g);self._hover_tip(screen,g)
         if self.vehicle_card:
             import town_catalog as K

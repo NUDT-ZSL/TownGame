@@ -15,15 +15,27 @@ in vec3 offset;
 in float angle;
 in float scale;
 in float ident;
+uniform float elapsed;
 vec3 rotate(vec3 p) {
     float c=cos(angle),s=sin(angle);
     return vec3(c*p.x-s*p.y,s*p.x+c*p.y,p.z);
 }
+vec3 animated_position() {
+    vec3 p=in_position*scale;
+    if(in_emission < -.5 && in_emission > -1.5) {
+        float bend=max(0.,in_position.z-30.)/110.;
+        p.x+=sin(elapsed*1.4+offset.x*.017+offset.y*.013)*bend*bend*3.;
+        p.y+=cos(elapsed*1.1+offset.x*.013)*bend*bend*1.5;
+    }
+    p=rotate(p)+offset;
+    if(in_emission < -1.5) p.z+=sin(p.x*.035+elapsed*1.8)*.7+cos(p.y*.045-elapsed*1.3)*.5;
+    return p;
+}
 vec3 light_position(vec3 p) {
-    vec3 v=p-vec3(1800,1200,0);
-    return vec3(dot(v,vec3(.894427,-.447214,0))/2600.,
-                dot(v,vec3(-.365148,-.730297,.577350))/2600.,
-                dot(v,vec3(-.258199,-.516398,-.816497))/4000.);
+    vec3 v=p-vec3(3000,1920,0);
+    return vec3(dot(v,vec3(.894427,-.447214,0))/4300.,
+                dot(v,vec3(-.365148,-.730297,.577350))/4300.,
+                dot(v,vec3(-.258199,-.516398,-.816497))/6500.);
 }
 '''
 VERTEX = '''#version 330
@@ -34,7 +46,7 @@ out vec3 normal,color,world;
 out float emission;
 flat out float object_id;
 void main() {
-    world=rotate(in_position*scale)+offset;
+    world=animated_position();
     vec3 v=world-eye;
     float depth=dot(v,forward);
     gl_Position=vec4(dot(v,right)*focal.x,dot(v,up)*focal.y,
@@ -49,6 +61,7 @@ flat in float object_id;
 uniform sampler2D shadow_map;
 uniform float night;
 uniform vec3 eye;
+uniform float elapsed;
 layout(location=0) out vec4 out_color;
 layout(location=1) out vec4 out_id;
 ''' + TRANSFORM[TRANSFORM.index('vec3 light_position'):] + '''
@@ -67,7 +80,11 @@ void main() {
     vec3 c=color*lighting*mix(vec3(1.04,1.01,.96),vec3(.60,.69,.91),night);
     float specular=pow(max(0.,dot(n,normalize(sun+normalize(eye-world)))),24.)*.035;
     c+=specular*(1.-night*.6);
-    c=mix(c,mix(color,vec3(1.,.82,.48),.75),emission*night*.85);
+    c=mix(c,mix(color,vec3(1.,.82,.48),.75),max(0.,emission)*night*.85);
+    if(emission < -1.5) {
+        float ripple=sin(length(world.xy-vec2(595.,1645.))*.15-elapsed*2.2+sin(world.y*.025)*.5);
+        c+=vec3(.08,.13,.14)*smoothstep(.88,1.,ripple);
+    }
     float fog=clamp((distance(world,eye)-1800.)/7000.,0.,.28);
     c=mix(c,mix(vec3(.78,.85,.77),vec3(.35,.43,.54),night),fog);
     out_color=vec4(c,1.);
@@ -77,7 +94,7 @@ void main() {
 '''
 SHADOW_VERTEX = '''#version 330
 ''' + TRANSFORM + '''
-void main() {gl_Position=vec4(light_position(rotate(in_position*scale)+offset),1.);}
+void main() {gl_Position=vec4(light_position(animated_position()),1.);}
 '''
 
 
@@ -113,12 +130,13 @@ class Renderer3D:
         vbo=self.ctx.buffer(mesh.data.tobytes());instances=self.ctx.buffer(reserve=24)
         vao=self.ctx.vertex_array(self.program,[(vbo,'3f 3f 3f 1f','in_position','in_normal','in_color','in_emission'),
                  (instances,'3f 1f 1f 1f /i','offset','angle','scale','ident')])
-        shadow=self.ctx.vertex_array(self.shadow_program,[(vbo,'3f 28x','in_position'),
+        shadow=self.ctx.vertex_array(self.shadow_program,[(vbo,'3f 24x 1f','in_position','in_emission'),
                     (instances,'3f 1f 1f 4x /i','offset','angle','scale')])
         value=(vbo,instances,vao,shadow);self.cache[mesh]=value
         return value
 
-    def draw(self,camera,objects,night=False):
+    def draw(self,camera,objects,night=False,elapsed=None):
+        self.elapsed=pygame.time.get_ticks()/1000 if elapsed is None else elapsed
         self.keys=[None];groups={}
         for mesh,position,angle,scale,key in objects:
             ident=0
@@ -132,6 +150,8 @@ class Renderer3D:
             vbo,buffer,vao,shadow=self._mesh(mesh);raw=data.tobytes()
             buffer.orphan(len(raw));buffer.write(raw);commands.append((vao,shadow,len(data)//6))
         self.ctx.enable(self.gl.DEPTH_TEST);self.ctx.disable(self.gl.BLEND|self.gl.CULL_FACE)
+        self.program['elapsed'].value=self.elapsed
+        self.shadow_program['elapsed'].value=self.elapsed
         self.shadow_fbo.use();self.ctx.viewport=(0,0,2048,2048);self.shadow_fbo.clear(depth=1.)
         for vao,shadow,count in commands:shadow.render(instances=count)
         self.framebuffer.use();self.ctx.viewport=(0,0,*size)
@@ -185,6 +205,14 @@ class Renderer3D:
                     vertices=[];depth=0;points=[]
                     for j in (k,k+10,k+20):
                         x,y,z=mesh.data[j:j+3];p=(ox+(x*c-y*s)*scale,oy+(x*s+y*c)*scale,oz+z*scale)
+                        material=mesh.data[j+9]
+                        if -1.5<material<-.5:
+                            bend=max(0,z-30)/110
+                            bx=math.sin(self.elapsed*1.4+ox*.017+oy*.013)*bend*bend*3
+                            by=math.cos(self.elapsed*1.1+ox*.013)*bend*bend*1.5
+                            p=(p[0]+bx*c-by*s,p[1]+bx*s+by*c,p[2])
+                        elif material<-1.5:
+                            p=(p[0],p[1],p[2]+math.sin(p[0]*.035+self.elapsed*1.8)*.7+math.cos(p[1]*.045-self.elapsed*1.3)*.5)
                         q=camera.project(p)
                         if q is None:break
                         vertices.append((q[0]-camera.vx,q[1]-camera.vy));depth+=q[2];points.append(p)

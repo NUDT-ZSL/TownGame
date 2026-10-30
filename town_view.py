@@ -224,20 +224,42 @@ class TownView:
             return pygame.transform.smoothscale(layer,self.viewport.size)
         return self.static_frames.get(key,build)
 
-    def tick(self,dt,game=None):
+    def tick(self,dt,game=None,actors=None):
         self.time += dt
         self.farm.tick(dt)
         if game is not None:
-            self.traffic.update(dt,game)
+            self.traffic.update(dt,game,tuple(self.people.values()))
             alive = {p["person_id"] for p in game.people}
+            if not hasattr(game,'_town_care'):
+                from town_care import TownCare
+                game._town_care=TownCare()
+            care=game._town_care
+            care.tick(dt)
+            if care.session and care.session['person'] not in alive:
+                care.session=None
             self.people = {k:a for k,a in self.people.items() if k in alive}
+            open_zones={zone:game.town.effective_level(zone)>0 for zone in ('park','fields')}
+            settlement=game.meta.get('settlement',{})
+            jobs={j['worker']:j for j in settlement.get('jobs',[])} if settlement.get('enabled') else {}
             for p in game.people:
                 ident = p["person_id"]
                 if ident not in self.people:
                     cell=PORTALS[p['home_zone']] if p['role']=='居民' else PORTALS['station']
                     x,y=cell_center(*cell)
                     self.people[ident]=RoadWalker(ident,x,y)
-                self.people[ident].update(dt,p,game.construction.grid)
+                actor=self.people[ident]
+                job=jobs.get(ident)
+                if job:
+                    labels={'crop':'播种与照料','harvest':'收获入库','ranch':'饲养牲畜','gather':'采集建材','trade':'运输与贸易','build':'筹备住宅施工','road':'铺设接入道路','open':'建设公共设施'}
+                    if actor.revision==game.meta['road_revision'] and actor.goal==job['zone'] and actor.target==job['zone'] and actor.index>=len(actor.points):
+                        actor.path=[];actor.activity=labels[job['kind']]
+                        actor.action='farm' if job['kind'] in ('crop','gather','build','road') else ''
+                        continue
+                    p=dict(p,destination=job['zone'])
+                if not care.update(self,actor,p,game,actors or (),dt):
+                    actor.update(dt,p,game.construction.grid,open_zones,self.traffic.vehicles,self.traffic.signals)
+                    if job:actor.activity='前往工作地点：'+C.TOWN_ZONES[job['zone']]['name']
+                    else:care.start(self,actor,p,game,actors or ())
 
     def spawn_hearts(self,*args):
         self.farm.spawn_hearts(*args)
@@ -261,7 +283,7 @@ class TownView:
         self._lawn_texture(s,pygame.Rect(0,0,*C.WORLD_SIZE),grass,1100)
         # 河谷、花木和柔和的地形色带。
         for i in range(100):
-            x,y = (i*337+97)%3600,(i*193+181)%2400
+            x,y = (i*337+97)%C.WORLD_SIZE[0],(i*193+181)%C.WORLD_SIZE[1]
             pygame.draw.ellipse(s,art.lighten(grass,.035),(x,y,180,90))
         for key,spec in C.TOWN_ZONES.items():
             if key == "estate":
@@ -348,6 +370,16 @@ class TownView:
             pygame.draw.rect(s,(216,181,126),(r.x+35,r.y+340,r.w-70,65),border_radius=8)
             for x in range(r.x+45,r.right-35,30):
                 pygame.draw.line(s,(177,143,100),(x,r.y+343),(x,r.y+401),1)
+        elif key in ('ranch','industry','city'):
+            from districts import landmarks
+            for zone,kind,(x,y,w,h),level_hint in landmarks():
+                if zone!=key:continue
+                if key=='ranch':
+                    art.draw_cottage(s,pygame.Rect(x,y,w,h),'牧场',1,(184,147,108),night=night)
+                else:
+                    image=town_art.building_sprite(kind,0,self.light,g.season,g.weather.current,4)
+                    image=pygame.transform.smoothscale(image,(w,round(h*(1.8 if key=='city' else 1))))
+                    s.blit(image,image.get_rect(midbottom=(x+w/2,y+h)))
         else:
             art.draw_cottage(s,pygame.Rect(LANDMARKS[3]),"仓库",max(1,level),(184,153,113),night=night)
         if not level:
@@ -363,7 +395,21 @@ class TownView:
             if abs(dx)>.1:
                 facing = -1 if dx<0 else 1
         actor.facing = facing
-        return town_art.person_sprite(person['color_index'],person['role']=='游客',wet,frame,person['person_id'],facing)
+        image=town_art.person_sprite(person['color_index'],person['role']=='游客',wet,frame,person['person_id'],facing)
+        action=getattr(actor,'action','')
+        if action:
+            image=image.copy()
+            if action=='read':
+                pygame.draw.rect(image,(116,151,132),(24,65,24,15),border_radius=2)
+                pygame.draw.rect(image,(246,235,207),(26,67,20,11))
+                pygame.draw.line(image,(167,154,130),(36,67),(36,77))
+            elif action=='farm':
+                offset=round(math.sin(actor.anim*3)*4)
+                pygame.draw.line(image,(155,117,78),(44,61),(53+offset,89),3)
+                pygame.draw.line(image,(113,130,118),(48+offset,89),(58+offset,89),4)
+        if person.get('role')=='居民' and self.last_game and self.last_game.now-person.get('born_ts',-1e20)<7*C.DAY:
+            image=pygame.transform.smoothscale(image,(round(image.get_width()*.6),round(image.get_height()*.6)))
+        return image
 
     def _draw_people(self,layer,g,area,only=None):
         lookup = {p["person_id"]:p for p in g.people}
@@ -394,17 +440,17 @@ class TownView:
             pygame.draw.rect(image,(192,211,167),inside,border_radius=6)
             for zone,spec in C.TOWN_ZONES.items():
                 wx,wy,w,h=spec['rect']
-                rect=pygame.Rect(inside.x+wx/3600*inside.w,inside.y+wy/2400*inside.h,max(2,w/3600*inside.w),max(2,h/2400*inside.h))
+                rect=pygame.Rect(inside.x+wx/C.WORLD_SIZE[0]*inside.w,inside.y+wy/C.WORLD_SIZE[1]*inside.h,max(2,w/C.WORLD_SIZE[0]*inside.w),max(2,h/C.WORLD_SIZE[1]*inside.h))
                 pygame.draw.rect(image,spec['color'] if g.town.level(zone) else (205,205,179),rect,border_radius=3)
             for road in g.roads:
                 wx,wy=cell_center(road['cx'],road['cy'])
-                pygame.draw.rect(image,(113,126,116),(inside.x+wx/3600*inside.w,inside.y+wy/2400*inside.h,2,2))
+                pygame.draw.rect(image,(113,126,116),(inside.x+wx/C.WORLD_SIZE[0]*inside.w,inside.y+wy/C.WORLD_SIZE[1]*inside.h,2,2))
             for b in g.town_buildings:
-                pygame.draw.rect(image,(175,123,89),(inside.x+b['cx']*48/3600*inside.w,inside.y+b['cy']*48/2400*inside.h,3,3))
+                pygame.draw.rect(image,(175,123,89),(inside.x+b['cx']*48/C.WORLD_SIZE[0]*inside.w,inside.y+b['cy']*48/C.WORLD_SIZE[1]*inside.h,3,3))
             return image
         s.blit(self.minimap_frames.get(key,build),r)
         inside=self.mini_inner
-        frame=pygame.Rect(inside.x+self.camera.x/3600*inside.w,inside.y+self.camera.y/2400*inside.h,self.viewport.w/self.camera.zoom/3600*inside.w,self.viewport.h/self.camera.zoom/2400*inside.h)
+        frame=pygame.Rect(inside.x+self.camera.x/C.WORLD_SIZE[0]*inside.w,inside.y+self.camera.y/C.WORLD_SIZE[1]*inside.h,self.viewport.w/self.camera.zoom/C.WORLD_SIZE[0]*inside.w,self.viewport.h/self.camera.zoom/C.WORLD_SIZE[1]*inside.h)
         pygame.draw.rect(s,ui.GREEN,frame,2,border_radius=3)
 
     def _hover_tip(self,screen,g):
@@ -441,6 +487,13 @@ class TownView:
         saved_clip=screen.get_clip(); screen.set_clip(self.viewport)
         self.town_building_hits=[]; self.person_hits=[]; self.vehicle_hits=[];self.decoration_hits=[]
         drawables=[]; lookup={p['person_id']:p for p in g.people}
+        if g.town.effective_level('ranch'):
+            herd=g.meta.get('settlement',{}).get('stock',{}).get('herd',0)
+            for i in range(min(12,herd)):
+                x,y=1510+(i%4)*140,2830+(i//4)*100
+                sprite=self.renderer.sprite('绵羊','成年',False,False,'idle',0,self.light,48,appearance=i%8)
+                rect=sprite.get_rect(midbottom=(x,y))
+                if rect.colliderect(area):drawables.append((y,'herd',None,(self.scaled(sprite),self.project_rect(rect))))
         wet=g.weather.current in ('小雨','暴雨','雨夹雪')
         if pygame.Rect(C.FARM_WORLD_RECT).colliderect(area):
             self.farm_surface.begin(getattr(screen,'recording',False) or self.camera.zoom!=1)
@@ -456,7 +509,10 @@ class TownView:
             rect=pygame.Rect(actor.x-33,actor.y-96,72,106)
             if not actor.visible or not person or not rect.colliderect(area): continue
             sprite=self._person_sprite(actor,person,wet)
-            drawables.append((actor.y,'person',actor,(self.scaled(sprite),self.project_rect(rect))))
+            rect=sprite.get_rect(midbottom=(actor.x,actor.y))
+            care=getattr(g,'_town_care',None)
+            depth=FY+FH+1 if care and care.session and care.session['person']==actor.ident else actor.y
+            drawables.append((depth,'person',actor,(self.scaled(sprite),self.project_rect(rect))))
         for building in g.town_buildings:
             b=building
             stage=4 if b['status']=='ready' else min(3,int(4*(g.now-b['placed_ts'])/(b['finish_ts']-b['placed_ts'])))
@@ -507,6 +563,8 @@ class TownView:
         screen.set_clip(saved_clip)
         old_clip = screen.get_clip()
         screen.set_clip(self.viewport)
+        from signal_art import draw_signals
+        draw_signals(self,screen)
         self._weather_overlay(screen,g)
         screen.set_clip(old_clip)
         art.clay_panel(screen,self.home_button,(255,251,239),10,ui.LINE,shadow_alpha=20)
