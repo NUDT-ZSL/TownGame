@@ -1,4 +1,4 @@
-param([switch]$Editor,[switch]$Smoke,[switch]$Benchmark,[switch]$BenchmarkSimulation,[switch]$Verify,[switch]$UiSmoke,[switch]$ResidenceSmoke,[switch]$ResidencePreview,[switch]$FarmSmoke,[switch]$FarmPreview,[switch]$FreightSmoke,[switch]$FreightPreview)
+﻿param([switch]$Editor,[switch]$Smoke,[switch]$Benchmark,[switch]$BenchmarkSimulation,[switch]$Verify,[switch]$UiSmoke,[switch]$ResidenceSmoke,[switch]$ResidencePreview,[switch]$FarmSmoke,[switch]$FarmPreview,[switch]$FreightSmoke,[switch]$FreightPreview)
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path -Parent $PSScriptRoot
 $taskDotnet=Join-Path $taskRoot '.tools\dotnet\dotnet.exe'
