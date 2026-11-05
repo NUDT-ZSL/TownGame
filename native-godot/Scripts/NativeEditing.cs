@@ -17,25 +17,79 @@ public sealed partial class NativeGame
     }
     string EditRoad(JsonObject a,bool remove)
     {
-        var c=new Cell(I(a,"cx"),I(a,"cy"));var previous=Rows("roads").FirstOrDefault(r=>I(r!,"cx")==c.X&&I(r!,"cy")==c.Y);string style=S(a,"style","asphalt");var old=previous?.DeepClone();int cost;
-        if(remove){if(previous==null)throw new InvalidOperationException("此处没有道路");cost=-(int)Math.Floor(I(previous,"paid")*Rule("ROAD_REFUND",.5));Rows("roads").Remove(previous);}
-        else{if(!Allowed(c))throw new InvalidOperationException("此处不可铺路");if(previous!=null&&S(previous,"road_style")==style)throw new InvalidOperationException("道路风格相同");cost=I(Spec("ROAD_STYLES",style),"cost");Pay(cost);if(previous!=null)Rows("roads").Remove(previous);Rows("roads").Add(new JsonObject{{"road_id",$"{c.X},{c.Y}"},{"cx",c.X},{"cy",c.Y},{"road_style",style},{"built_ts",Now},{"paid",old==null?cost:I(old,"paid")}});Meta["roads_built"]=I(Meta,"roads_built")+1;ClearGround(new[]{c});}
-        if(remove)Meta["coins"]=I(Meta,"coins")-cost;Meta["road_revision"]=I(Meta,"road_revision")+1;WorldRevision++;
-        Meta["native_road_undo"]=new JsonObject{{"cx",c.X},{"cy",c.Y},{"previous",old},{"cost",cost},{"revision",I(Meta,"road_revision")}};
-        return remove?$"道路已拆除，返还{-cost}金币":$"道路已铺设，花费{cost}金币";
+        return EditRoadStroke(new JsonObject{{"cells",new JsonArray(new JsonArray(I(a,"cx"),I(a,"cy")))},{"style",S(a,"style","asphalt")},{"remove",remove}});
+    }
+    public static System.Collections.Generic.List<Cell> RoadLine(Cell from,Cell to)
+    {
+        var result=new System.Collections.Generic.List<Cell>{from};var c=from;
+        while(c.X!=to.X||c.Y!=to.Y){if(c.X!=to.X)c=new(c.X+Math.Sign(to.X-c.X),c.Y);else c=new(c.X,c.Y+Math.Sign(to.Y-c.Y));result.Add(c);}return result;
+    }
+    public System.Collections.Generic.List<Cell> AutoRoadPlan(Cell target)=>RoadPlan(new[]{target});
+    public string RoadReason(Cell cell,string style,bool remove=false)
+    {
+        if(cell.X<0||cell.Y<0||cell.X>=125||cell.Y>=80)return "超出地图";
+        if(remove)return "";
+        if(Rules["ROAD_STYLES"]?[style]==null)return "未知道路风格";
+        return Allowed(cell)?"":"建筑占用、保护地形或街区未开放";
+    }
+    public (int Cost,string Reason) RoadQuote(System.Collections.Generic.IEnumerable<Cell> cells,string style,bool remove=false)
+    {
+        int cost=0;var roads=Rows("roads").ToDictionary(r=>new Cell(I(r!,"cx"),I(r!,"cy")));
+        foreach(var c in cells.Distinct()){
+            string reason=RoadReason(c,style,remove);if(reason!="")return(0,$"({c.X},{c.Y}) {reason}");
+            roads.TryGetValue(c,out var old);
+            if(remove){if(old!=null)cost-=(int)Math.Floor(I(old,"paid")*Rule("ROAD_REFUND",.5));}
+            else if(old==null||S(old,"road_style")!=style)cost+=I(Spec("ROAD_STYLES",style),"cost");
+        }
+        return(cost,cost>I(Meta,"coins")?"金币不足":"");
+    }
+    string EditRoadStroke(JsonObject args)
+    {
+        string style=S(args,"style","asphalt");bool remove=B(args,"remove");
+        var cells=args["cells"]?.AsArray().Select(c=>new Cell(c![0]!.GetValue<int>(),c[1]!.GetValue<int>())).Distinct().ToArray()??throw new InvalidOperationException("道路笔画为空");
+        if(cells.Length==0||cells.Length>10000)throw new InvalidOperationException("道路笔画为空或过长");
+        var quote=RoadQuote(cells,style,remove);if(quote.Reason!="")throw new InvalidOperationException(quote.Reason);
+        var changes=new JsonArray();
+        foreach(var c in cells){
+            var old=Rows("roads").FirstOrDefault(r=>I(r!,"cx")==c.X&&I(r!,"cy")==c.Y);
+            if(remove&&old==null)continue;
+            if(!remove&&old!=null&&S(old,"road_style")==style)continue;
+            var change=new JsonObject{{"cx",c.X},{"cy",c.Y},{"before",old?.DeepClone()}};if(old!=null)Rows("roads").Remove(old);
+            if(!remove){var road=new JsonObject{{"road_id",$"{c.X},{c.Y}"},{"cx",c.X},{"cy",c.Y},{"road_style",style},{"built_ts",Now},{"paid",old==null?I(Spec("ROAD_STYLES",style),"cost"):I(old,"paid")}};Rows("roads").Add(road);change["after"]=road.DeepClone();}
+            changes.Add(change);
+        }
+        if(changes.Count==0)throw new InvalidOperationException(remove?"此处没有可拆除道路":"道路风格相同，无需施工");
+        if(quote.Cost>0)Pay(quote.Cost);else Meta["coins"]=I(Meta,"coins")-quote.Cost;
+        if(!remove){ClearGround(cells);Meta["roads_built"]=I(Meta,"roads_built")+changes.Count;}
+        Meta["native_road_history"]!.AsArray().Add(new JsonObject{{"changes",changes},{"cost",quote.Cost}});while(Meta["native_road_history"]!.AsArray().Count>20)Meta["native_road_history"]!.AsArray().RemoveAt(0);
+        Meta["native_road_undo"]=null;Meta["road_revision"]=I(Meta,"road_revision")+1;WorldRevision++;
+        return $"道路笔画完成 {changes.Count}格，{(quote.Cost<0?"返还":"花费")}{Math.Abs(quote.Cost)}金币";
+    }
+    string UndoRoadStroke()
+    {
+        var history=Meta["native_road_history"]!.AsArray();
+        if(history.Count==0){
+            // 兼容迁移前仅保存一笔的撤销记录。
+            if(Meta["native_road_undo"] is not JsonNode old||I(old,"revision")!=I(Meta,"road_revision"))throw new InvalidOperationException("没有可撤销道路");
+            var current=Rows("roads").FirstOrDefault(r=>I(r!,"cx")==I(old,"cx")&&I(r!,"cy")==I(old,"cy"));
+            history.Add(new JsonObject{{"cost",I(old,"cost")},{"changes",new JsonArray(new JsonObject{{"cx",I(old,"cx")},{"cy",I(old,"cy")},{"before",old["previous"]?.DeepClone()},{"after",current?.DeepClone()}})}});
+        }
+        var undo=history.Last()!;var changes=undo["changes"]!.AsArray();
+        foreach(var c in changes){var cell=new Cell(I(c!,"cx"),I(c!,"cy"));if(Occupied().Contains(cell))throw new InvalidOperationException("原道路位置已被建筑或装饰占用");var current=Rows("roads").FirstOrDefault(r=>I(r!,"cx")==cell.X&&I(r!,"cy")==cell.Y);if(!JsonNode.DeepEquals(current,c!["after"]))throw new InvalidOperationException("原笔画道路已被其他施工修改");}
+        int cost=I(undo,"cost");if(cost<0)Pay(-cost);else Meta["coins"]=I(Meta,"coins")+cost;
+        foreach(var c in changes){var current=Rows("roads").FirstOrDefault(r=>I(r!,"cx")==I(c!,"cx")&&I(r!,"cy")==I(c!,"cy"));if(current!=null)Rows("roads").Remove(current);if(c!["before"] is JsonNode before)Rows("roads").Add(before.DeepClone());}
+        history.Remove(undo);Meta["native_road_undo"]=null;Meta["road_revision"]=I(Meta,"road_revision")+1;WorldRevision++;return "已撤销整笔道路，费用已恢复";
     }
     string EditCommand(string action,JsonObject a)
     {
         switch(action){
             case "edit_road":return EditRoad(a,false);
             case "remove_road":return EditRoad(a,true);
-            case "undo_road":{
-                var undo=Meta["native_road_undo"]??throw new InvalidOperationException("没有可撤销道路");if(I(undo,"revision")!=I(Meta,"road_revision"))throw new InvalidOperationException("路网已变更，无法撤销");var cell=new Cell(I(undo,"cx"),I(undo,"cy"));if(Occupied().Contains(cell))throw new InvalidOperationException("位置已被建筑占用");int cost=I(undo,"cost");if(cost<0)Pay(-cost);else Meta["coins"]=I(Meta,"coins")+cost;
-                var current=Rows("roads").FirstOrDefault(r=>I(r!,"cx")==cell.X&&I(r!,"cy")==cell.Y);if(current!=null)Rows("roads").Remove(current);if(undo["previous"] is JsonNode previous)Rows("roads").Add(previous.DeepClone());Meta["native_road_undo"]=null;Meta["road_revision"]=I(Meta,"road_revision")+1;WorldRevision++;return "道路与费用已恢复";}
+            case "undo_road":return UndoRoadStroke();
             case "remove_town":{var b=Rows("town_buildings").FirstOrDefault(b=>S(b!,"building_id")==S(a,"building_id"))??throw new InvalidOperationException("建筑不存在");if(HomeMembers(S(b,"building_id")).Any())throw new InvalidOperationException("这是居民的固定住宅，不能拆除有人居住的房屋");if(B(b,"starter_home"))throw new InvalidOperationException("初始安置住宅不提供拆除退款");int refund=(int)(D(Spec("CATALOG",S(b,"catalog_key")),"cost")*D(Rules["BUILDING_REFUND"]!,S(b,"status")));Rows("town_buildings").Remove(b);Meta["coins"]=I(Meta,"coins")+refund;WorldRevision++;return $"建筑已拆除，返还{refund}金币";}
             case "demolish_manor":{var b=Rows("buildings").First(b=>I(b!,"building_id")==I(a,"building_id"))!;if(S(b,"kind")==""||Pets.Any(p=>Active(p!)&&I(p!,"building_id")==I(b,"building_id")))throw new InvalidOperationException("请先迁走全部伙伴");int capacity=Storage-(S(b,"kind")=="仓库"?I(b,"level")*I(Rules,"STORAGE_PER_LEVEL"):0);if(Rows("inventory").Sum(i=>I(i!,"quantity"))>capacity)throw new InvalidOperationException("拆除后仓库容量不足");Meta["coins"]=I(Meta,"coins")+(int)(D(Spec("BUILDINGS",S(b,"kind")),"cost")*Rule("DEMOLISH_REFUND"));b["kind"]="";b["level"]=0;WorldRevision++;return "建筑已拆除";}
             case "decoration":return EditDecoration(a);
-            default:throw new InvalidOperationException("尚未迁移的操作："+action);
+            default:throw new InvalidOperationException("不支持的操作："+action);
         }
     }
     string EditDecoration(JsonObject a)

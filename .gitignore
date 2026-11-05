@@ -32,3 +32,4 @@ native-godot/bin/
 native-godot/obj/
 native-godot/Content/world.json
 native-godot/Content/legacy-save.json
+native-godot/dist/

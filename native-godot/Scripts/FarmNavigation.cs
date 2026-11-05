@@ -4,7 +4,7 @@ using System.Collections.Generic;
 
 // One-metre local A*: check the actual wall colliders above ground rather than
 // sending a worker in a straight line through the animal houses.
-public sealed class FarmNavigation
+public sealed class FarmNavigation : IDisposable
 {
     readonly Main _town;
     readonly Dictionary<Vector2I,bool> _clear=new();

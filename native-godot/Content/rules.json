@@ -1,0 +1,2078 @@
+{
+  "HOUR": 3600,
+  "DAY": 86400,
+  "WINDOW": [
+    1280,
+    860
+  ],
+  "FPS": 30,
+  "SPEED": 120,
+  "SAVE_INTERVAL": 10,
+  "STEP": 3600,
+  "INITIAL_COINS": 3600,
+  "GRID_COLS": 125,
+  "GRID_ROWS": 80,
+  "UNLOCK_BASE": 180,
+  "MAX_LEVEL": 5,
+  "BASE_STORAGE": 120,
+  "STORAGE_PER_LEVEL": 100,
+  "SEASON_DAYS": 7,
+  "SEASONS": [
+    "春",
+    "夏",
+    "秋",
+    "冬"
+  ],
+  "WORLD_SIZE": [
+    6000,
+    3840
+  ],
+  "FARM_WORLD_RECT": [
+    1160,
+    760,
+    1280,
+    616
+  ],
+  "WEATHER_INTERVAL": 14400,
+  "WEATHERS": {
+    "晴天": {
+      "traffic": 1.0,
+      "dirt": 1.0,
+      "health": 0,
+      "crop": 1.0,
+      "speed": 1.0
+    },
+    "阴天": {
+      "traffic": 0.95,
+      "dirt": 1.0,
+      "health": 0,
+      "crop": 1.0,
+      "speed": 1.0
+    },
+    "大风": {
+      "traffic": 0.8,
+      "dirt": 1.15,
+      "health": 0.025,
+      "crop": 0.9,
+      "speed": 0.85
+    },
+    "小雨": {
+      "traffic": 0.75,
+      "dirt": 1.2,
+      "health": 0.02,
+      "crop": 1.15,
+      "speed": 0.8
+    },
+    "暴雨": {
+      "traffic": 0.45,
+      "dirt": 1.45,
+      "health": 0.07,
+      "crop": 0.7,
+      "speed": 0.65
+    },
+    "雨夹雪": {
+      "traffic": 0.5,
+      "dirt": 1.3,
+      "health": 0.09,
+      "crop": 0.65,
+      "speed": 0.55
+    },
+    "降雪": {
+      "traffic": 0.65,
+      "dirt": 1.1,
+      "health": 0.08,
+      "crop": 0.6,
+      "speed": 0.6
+    }
+  },
+  "WEATHER_WEIGHTS": {
+    "春": [
+      38,
+      22,
+      12,
+      20,
+      6,
+      2,
+      0
+    ],
+    "夏": [
+      40,
+      14,
+      10,
+      23,
+      13,
+      0,
+      0
+    ],
+    "秋": [
+      35,
+      25,
+      22,
+      13,
+      4,
+      1,
+      0
+    ],
+    "冬": [
+      24,
+      20,
+      12,
+      4,
+      2,
+      18,
+      20
+    ]
+  },
+  "TOWN_POP_INTERVAL": 3600,
+  "TOWN_VISIT_INTERVAL": 7200,
+  "TOWN_VISIT_STAY": 14400,
+  "TOWN_EXIT_TIME": 10800,
+  "TOWN_SPEND_DELAY": 3600,
+  "TOWN_BASE_RESIDENTS": 4,
+  "TOWN_RESIDENTS_PER_LEVEL": 8,
+  "TOWN_BASE_ARRIVALS": 3,
+  "TOWN_MAX_PEOPLE": 80,
+  "TOWN_RENT_PER_PERSON": 2,
+  "TOWN_SPEND_PER_LEVEL": 6,
+  "TOWN_MAX_LEVEL": 3,
+  "TOWN_UPGRADE_FACTOR": 0.75,
+  "TOWN_FIELD_INTERVAL": 43200,
+  "TOWN_FIELD_TTL": 43200,
+  "TOWN_FIELD_GRAIN": 4,
+  "TOWN_FIELD_GRASS": 2,
+  "TOWN_ZONES": {
+    "estate": {
+      "name": "中央庄园",
+      "cost": 0,
+      "rect": [
+        1160,
+        760,
+        1280,
+        616
+      ],
+      "color": [
+        166,
+        197,
+        133
+      ],
+      "feature": "宠物养成、繁育、医院与原有20块地块"
+    },
+    "market": {
+      "name": "晨光商业街",
+      "cost": 900,
+      "rect": [
+        2520,
+        240,
+        930,
+        650
+      ],
+      "color": [
+        217,
+        173,
+        145
+      ],
+      "feature": "游客在商店消费，升级提高每笔消费收入"
+    },
+    "homes": {
+      "name": "居民社区",
+      "cost": 1100,
+      "rect": [
+        130,
+        160,
+        930,
+        780
+      ],
+      "color": [
+        179,
+        191,
+        215
+      ],
+      "feature": "吸引常住居民，每游戏日按人口收取租金"
+    },
+    "park": {
+      "name": "柳岸公园",
+      "cost": 600,
+      "rect": [
+        130,
+        1090,
+        930,
+        1070
+      ],
+      "color": [
+        145,
+        190,
+        176
+      ],
+      "feature": "增加游客吸引力，并提升宠物互动开心收益"
+    },
+    "station": {
+      "name": "车站广场",
+      "cost": 1400,
+      "rect": [
+        1260,
+        100,
+        1040,
+        510
+      ],
+      "color": [
+        208,
+        181,
+        137
+      ],
+      "feature": "更多游客乘车抵达，坏天气仍保留部分客流"
+    },
+    "fields": {
+      "name": "山麓农田",
+      "cost": 750,
+      "rect": [
+        2520,
+        1150,
+        930,
+        1010
+      ],
+      "color": [
+        188,
+        198,
+        126
+      ],
+      "feature": "定时生产谷物和鲜草，手动收获入库，天气影响产量"
+    },
+    "ranch": {
+      "name": "南麓牧场",
+      "cost": 1000,
+      "rect": [
+        1300,
+        1800,
+        1200,
+        1500
+      ],
+      "color": [
+        166,
+        196,
+        124
+      ],
+      "feature": "放牧草场、畜舍与乡间道路"
+    },
+    "industry": {
+      "name": "东部工业区",
+      "cost": 1500,
+      "rect": [
+        3700,
+        240,
+        900,
+        1250
+      ],
+      "color": [
+        169,
+        180,
+        177
+      ],
+      "feature": "厂房、仓储与货运道路"
+    },
+    "city": {
+      "name": "现代都市区",
+      "cost": 2000,
+      "rect": [
+        4800,
+        240,
+        1050,
+        1500
+      ],
+      "color": [
+        158,
+        183,
+        204
+      ],
+      "feature": "高层住宅、写字楼与城市广场"
+    }
+  },
+  "CARE_INTERVAL": 10800,
+  "CARE_HIRE_COST": 260,
+  "CARE_WAGE": 8,
+  "EXCRETION_INTERVAL": 21600,
+  "WASTE_UNSAFE_AFTER": 43200,
+  "WASTE_FRESH_DIRT": 0.03,
+  "WASTE_STALE_DIRT": 0.14,
+  "WASTE_MAX_DIRT": 2.0,
+  "WASTE_DISEASE_PER_UNIT": 1.2,
+  "WASTE_MAX_HAZARD_BONUS": 18,
+  "MANAGER_NAME": "小林",
+  "MANAGER_HIRE_COST": 180,
+  "MANAGER_WAGE": 6,
+  "MANAGER_WAGE_INTERVAL": 21600,
+  "MANAGER_TRAVEL_SECONDS": 6,
+  "MANAGER_SWEEP_SECONDS": 8,
+  "MANAGER_SCAN_INTERVAL": 3600,
+  "MANAGER_RETRY_INTERVAL": 1800.0,
+  "MANAGER_HOME": [
+    0.88,
+    0.3
+  ],
+  "MAX_DRAWN_WASTE": 48,
+  "VISITOR_INTERVAL": 21600,
+  "VISITOR_BASE": 18,
+  "EVENT_INTERVAL": 28800,
+  "EVENT_CHANCE": 0.35,
+  "EVENT_DURATION": 43200,
+  "ORDER_INTERVAL": 86400,
+  "ORDER_DURATION": 172800,
+  "ORDER_COUNT": 3,
+  "BREED_COST": 100,
+  "BREED_FAVOR": 35,
+  "BREED_COOLDOWN": 172800,
+  "SEXES": [
+    "雌",
+    "雄"
+  ],
+  "CONCEPTION_CHANCE": 0.85,
+  "PREGNANCY_DURATION": 86400,
+  "CONCEPTION_RETRY": 21600,
+  "FIGHT_INTERVAL": 21600,
+  "FIGHT_CHANCE": 0.04,
+  "FIGHT_HUNGER_BONUS": 0.12,
+  "FIGHT_UNHAPPY_BONUS": 0.08,
+  "FIGHT_UNHAPPY_THRESHOLD": 25,
+  "FIGHT_CROWD_BONUS": 0.04,
+  "FIGHT_MATE_FACTOR": 0.25,
+  "FIGHT_PERSONALITY": {
+    "粘人": 0.8,
+    "高冷": 1.3,
+    "胆小": 0.65,
+    "吃货": 1.1,
+    "活泼": 1.0
+  },
+  "FIGHT_DAMAGE": [
+    8,
+    22
+  ],
+  "FIGHT_INJURY": [
+    10,
+    25
+  ],
+  "FIGHT_HAPPY_LOSS": 12,
+  "FIGHT_COOLDOWN": 43200,
+  "INJURY_HOURLY_DAMAGE": 0.02,
+  "TREATMENT_COOLDOWN": 21600,
+  "MEDICAL_LEVEL_BONUS": 0.08,
+  "PALLIATIVE_HEAL": 5,
+  "SICK_DAMAGE": 0.5,
+  "ILLNESSES": {
+    "普通感染": {
+      "weight": 80,
+      "damage": 0.5,
+      "cure": 1.0,
+      "failure_damage": 2,
+      "fatality": 0
+    },
+    "重症感染": {
+      "weight": 17,
+      "damage": 1.2,
+      "cure": 0.45,
+      "failure_damage": 8,
+      "fatality": 0.1
+    },
+    "绝症": {
+      "weight": 3,
+      "damage": 1.8,
+      "cure": 0,
+      "failure_damage": 0,
+      "fatality": 0
+    }
+  },
+  "INJURY_TREATMENT": {
+    "cure": 0.9,
+    "failure_damage": 5,
+    "fatality": 0.02
+  },
+  "MUTATION_CHANCE": 0.08,
+  "RARE_LIFE_FACTOR": 1.5,
+  "RARE_PRICE_FACTOR": 3,
+  "FOSTER_ENTER_COST": 40,
+  "PET_BUY_COST": 160,
+  "ADOPTION_COOLDOWN": 86400,
+  "RENAME_MAX": 16,
+  "INTERACT_COOLDOWN": 3600,
+  "PET_LIMIT": 100,
+  "STAGES": [
+    [
+      0.1,
+      "幼崽"
+    ],
+    [
+      0.25,
+      "少年"
+    ],
+    [
+      0.8,
+      "成年"
+    ],
+    [
+      1.0,
+      "老年"
+    ]
+  ],
+  "PERSONALITIES": [
+    "粘人",
+    "高冷",
+    "胆小",
+    "吃货",
+    "活泼"
+  ],
+  "FEEDBACK": {
+    "粘人": "扑进你的怀里，久久不肯离开。",
+    "高冷": "悄悄靠近，假装只是路过。",
+    "胆小": "小心翼翼地蹭了蹭你的手心。",
+    "吃货": "翻着你的口袋，期待下一份零食。",
+    "活泼": "围着你蹦跳，邀请你一起追逐玩具。"
+  },
+  "DECAY": {
+    "hunger": 0.9,
+    "happy": 0.38,
+    "cleanliness": 0.6
+  },
+  "STARVING": 20,
+  "STARVE_DAMAGE": 1.8,
+  "DIRTY": 25,
+  "OLD_DAMAGE": 0.07,
+  "HEALTH_RECOVERY": 0.06,
+  "ILLNESS_HOURLY": 0.0008,
+  "DIRTY_ILLNESS_MULT": 12,
+  "OLD_ILLNESS_MULT": 8,
+  "MISMATCH_MULT": 1.8,
+  "SUMMER_DIRT_MULT": 1.5,
+  "WINTER_DAMAGE": 0.12,
+  "PLAY_FAVOR": 8,
+  "PLAY_HAPPY": 18,
+  "BATH_GAIN": 55,
+  "MEDICINE_HEALTH": 35,
+  "PRODUCT_TTL": 64800,
+  "INITIAL_OPEN_PLOTS": [
+    0,
+    1,
+    2,
+    5,
+    6,
+    7
+  ],
+  "INITIAL_BUILDINGS": {
+    "0": "饲养小屋",
+    "1": "仓库",
+    "2": "商店"
+  },
+  "PET_INITIAL": {
+    "health": 100,
+    "hunger": 85,
+    "happy": 80,
+    "cleanliness": 90,
+    "favor": 20
+  },
+  "LEVEL_DECAY_BONUS": 0.06,
+  "GLUTTON_HUNGER_MULT": 1.2,
+  "MISMATCH_ILLNESS_MULT": 2,
+  "HOSPITAL_RECOVERY": 0.08,
+  "HOSPITAL_HEAL_BONUS": 3,
+  "TREATMENT_FEE": 12,
+  "HOSPITAL_FEE_REDUCTION": 4,
+  "PLAY_PERSONALITY_MULT": {
+    "粘人": 1.3,
+    "高冷": 0.75,
+    "胆小": 0.9,
+    "吃货": 1,
+    "活泼": 1.0
+  },
+  "PLAY_PARK_BONUS": 2,
+  "PLAY_PARK_MAX": 10,
+  "BREED_MIN_HEALTH": 50,
+  "BREED_MATERIALS": {
+    "普通饲料": 3,
+    "清水": 2
+  },
+  "BREED_REPUTATION": 1,
+  "BREED_RARE_REPUTATION": 3,
+  "EGG_PRICE_FACTOR": 0.85,
+  "EGG_RARE_REPUTATION": 2,
+  "CARE_FEED_THRESHOLD": 70,
+  "CARE_CLEAN_THRESHOLD": 65,
+  "CARE_CLEAN_GAIN": 35,
+  "VISITOR_PER_PET": 2,
+  "VISITOR_SHOP_BONUS": 0.15,
+  "VISITOR_PARK_BONUS": 0.1,
+  "SELL_BASE_FACTOR": 0.8,
+  "SELL_STAGE_FACTOR": {
+    "幼崽": 1,
+    "少年": 1.2,
+    "成年": 1.5,
+    "老年": 0.7
+  },
+  "SELL_SHOP_BONUS": 0.08,
+  "SELL_HEALTH_FLOOR": 10,
+  "UNLOCK_GROWTH": 30,
+  "UPGRADE_PRICE_FACTOR": 0.8,
+  "DEMOLISH_REFUND": 0.3,
+  "PRODUCT_NORMAL_COUNT": 1,
+  "PRODUCT_RARE_COUNT": 2,
+  "EXPIRING_HOURS": 6,
+  "OPEN_EVENT_COOLDOWN": 3600,
+  "REPUTATION_RARE_WEIGHT": 0.035,
+  "REPUTATION_RARE_CAP": 100,
+  "ORDER_ITEM_POOL": [
+    "兔毛",
+    "羊奶",
+    "鸟蛋",
+    "高级饲料",
+    "普通饲料",
+    "绒毛",
+    "猫毛",
+    "犬毛",
+    "软绒",
+    "森林果实",
+    "羊驼绒",
+    "林间香草",
+    "鸭蛋",
+    "孔雀羽"
+  ],
+  "ORDER_ITEM_COUNT": [
+    2,
+    5
+  ],
+  "ORDER_PET_REWARD": 240,
+  "ORDER_PET_PRICE_MULT": 1.5,
+  "ORDER_ITEM_REWARD_MIN": 40,
+  "ORDER_ITEM_REWARD_MULT": 2,
+  "ORDER_PET_REPUTATION": 5,
+  "ORDER_ITEM_REPUTATION": 2,
+  "EVENT_EFFECTS": {
+    "stray": {
+      "feed": 5,
+      "rep": 3
+    },
+    "merchant": {
+      "discount": 0.8
+    },
+    "tourists": {
+      "cost": 30,
+      "reward": 120,
+      "rep": 2,
+      "passive_reward": 40
+    },
+    "bonus": {
+      "count": 2,
+      "gift_rep": 3
+    },
+    "rain": {
+      "cost": 35,
+      "health": -8,
+      "cleanliness": -15
+    },
+    "infection": {
+      "medicine": 2,
+      "chance": 0.4
+    },
+    "inflation": {
+      "cost": 25,
+      "mult": 1.5
+    },
+    "scare": {
+      "snacks": 3,
+      "happy": -18
+    }
+  },
+  "SPECIES": {
+    "兔子": {
+      "life": 2592000,
+      "building": "饲养小屋",
+      "product": "兔毛",
+      "interval": 43200,
+      "color": [
+        239,
+        213,
+        185
+      ]
+    },
+    "绵羊": {
+      "life": 3888000,
+      "building": "牧场",
+      "product": "羊奶",
+      "interval": 43200,
+      "color": [
+        229,
+        230,
+        222
+      ]
+    },
+    "鹦鹉": {
+      "life": 3110400,
+      "building": "鸟舍",
+      "product": "鸟蛋",
+      "interval": 64800,
+      "color": [
+        142,
+        210,
+        180
+      ]
+    },
+    "狐狸": {
+      "life": 3456000,
+      "building": "饲养小屋",
+      "product": "绒毛",
+      "interval": 64800,
+      "color": [
+        235,
+        165,
+        110
+      ]
+    },
+    "猫咪": {
+      "life": 3456000,
+      "building": "饲养小屋",
+      "product": "猫毛",
+      "interval": 57600,
+      "color": [
+        215,
+        168,
+        118
+      ],
+      "buy_price": 240,
+      "purchase_only": true,
+      "egg_available": false
+    },
+    "小狗": {
+      "life": 3628800,
+      "building": "饲养小屋",
+      "product": "犬毛",
+      "interval": 57600,
+      "color": [
+        190,
+        143,
+        102
+      ],
+      "buy_price": 260,
+      "purchase_only": true,
+      "egg_available": false
+    },
+    "仓鼠": {
+      "life": 2073600,
+      "building": "饲养小屋",
+      "product": "软绒",
+      "interval": 36000,
+      "color": [
+        231,
+        197,
+        149
+      ],
+      "buy_price": 180,
+      "purchase_only": true,
+      "egg_available": false
+    },
+    "刺猬": {
+      "life": 2764800,
+      "building": "饲养小屋",
+      "product": "森林果实",
+      "interval": 57600,
+      "color": [
+        155,
+        124,
+        98
+      ],
+      "buy_price": 300,
+      "purchase_only": true,
+      "egg_available": false
+    },
+    "羊驼": {
+      "life": 4147200,
+      "building": "牧场",
+      "product": "羊驼绒",
+      "interval": 64800,
+      "color": [
+        235,
+        222,
+        196
+      ],
+      "buy_price": 420,
+      "purchase_only": true,
+      "egg_available": false
+    },
+    "梅花鹿": {
+      "life": 4320000,
+      "building": "牧场",
+      "product": "林间香草",
+      "interval": 50400,
+      "color": [
+        193,
+        139,
+        92
+      ],
+      "buy_price": 480,
+      "purchase_only": true,
+      "egg_available": false
+    },
+    "小鸭": {
+      "life": 2419200,
+      "building": "鸟舍",
+      "product": "鸭蛋",
+      "interval": 43200,
+      "color": [
+        247,
+        221,
+        119
+      ],
+      "buy_price": 200,
+      "purchase_only": true,
+      "egg_available": true
+    },
+    "孔雀": {
+      "life": 3974400,
+      "building": "鸟舍",
+      "product": "孔雀羽",
+      "interval": 86400,
+      "color": [
+        83,
+        165,
+        169
+      ],
+      "buy_price": 600,
+      "purchase_only": true,
+      "egg_available": true
+    }
+  },
+  "CLASSIC_SPECIES": [
+    "兔子",
+    "绵羊",
+    "鹦鹉",
+    "狐狸"
+  ],
+  "BUILDINGS": {
+    "饲养小屋": {
+      "cost": 180,
+      "capacity": 4,
+      "growth": 2,
+      "outdoor": false,
+      "color": [
+        195,
+        158,
+        119
+      ]
+    },
+    "牧场": {
+      "cost": 220,
+      "capacity": 4,
+      "growth": 2,
+      "outdoor": true,
+      "color": [
+        110,
+        165,
+        112
+      ]
+    },
+    "鸟舍": {
+      "cost": 200,
+      "capacity": 4,
+      "growth": 2,
+      "outdoor": true,
+      "color": [
+        113,
+        168,
+        184
+      ]
+    },
+    "宠物医院": {
+      "cost": 350,
+      "capacity": 2,
+      "growth": 1,
+      "outdoor": false,
+      "color": [
+        197,
+        134,
+        149
+      ]
+    },
+    "仓库": {
+      "cost": 200,
+      "capacity": 0,
+      "growth": 0,
+      "outdoor": false,
+      "color": [
+        160,
+        155,
+        195
+      ]
+    },
+    "加工坊": {
+      "cost": 280,
+      "capacity": 0,
+      "growth": 0,
+      "outdoor": false,
+      "color": [
+        182,
+        156,
+        106
+      ]
+    },
+    "商店": {
+      "cost": 250,
+      "capacity": 0,
+      "growth": 0,
+      "outdoor": false,
+      "color": [
+        201,
+        157,
+        168
+      ]
+    },
+    "游乐区": {
+      "cost": 200,
+      "capacity": 3,
+      "growth": 2,
+      "outdoor": true,
+      "color": [
+        160,
+        185,
+        114
+      ]
+    },
+    "寄养屋": {
+      "cost": 380,
+      "capacity": 3,
+      "growth": 2,
+      "outdoor": false,
+      "color": [
+        123,
+        157,
+        198
+      ]
+    }
+  },
+  "ITEMS": {
+    "普通饲料": {
+      "price": 5,
+      "sell": 2,
+      "ttl": 0,
+      "feed": {
+        "hunger": 30
+      }
+    },
+    "鲜草": {
+      "price": 4,
+      "sell": 1,
+      "ttl": 172800,
+      "feed": {
+        "hunger": 23,
+        "happy": 2
+      }
+    },
+    "高级饲料": {
+      "price": 16,
+      "sell": 8,
+      "ttl": 0,
+      "feed": {
+        "hunger": 55,
+        "health": 4,
+        "happy": 5
+      }
+    },
+    "零食": {
+      "price": 10,
+      "sell": 4,
+      "ttl": 0,
+      "feed": {
+        "hunger": 10,
+        "happy": 16,
+        "favor": 3,
+        "health": -2
+      }
+    },
+    "特制零食": {
+      "price": 25,
+      "sell": 12,
+      "ttl": 259200,
+      "feed": {
+        "hunger": 15,
+        "happy": 25,
+        "favor": 7
+      }
+    },
+    "清水": {
+      "price": 2,
+      "sell": 1,
+      "ttl": 0
+    },
+    "沐浴露": {
+      "price": 7,
+      "sell": 3,
+      "ttl": 0
+    },
+    "药品": {
+      "price": 18,
+      "sell": 7,
+      "ttl": 0
+    },
+    "谷物": {
+      "price": 3,
+      "sell": 1,
+      "ttl": 0
+    },
+    "兔毛": {
+      "price": 0,
+      "sell": 12,
+      "ttl": 0
+    },
+    "绒毛": {
+      "price": 0,
+      "sell": 16,
+      "ttl": 0
+    },
+    "羊奶": {
+      "price": 0,
+      "sell": 14,
+      "ttl": 86400
+    },
+    "鸟蛋": {
+      "price": 0,
+      "sell": 15,
+      "ttl": 172800
+    },
+    "猫毛": {
+      "price": 0,
+      "sell": 18,
+      "ttl": 0
+    },
+    "犬毛": {
+      "price": 0,
+      "sell": 20,
+      "ttl": 0
+    },
+    "软绒": {
+      "price": 0,
+      "sell": 10,
+      "ttl": 0
+    },
+    "森林果实": {
+      "price": 0,
+      "sell": 18,
+      "ttl": 172800
+    },
+    "羊驼绒": {
+      "price": 0,
+      "sell": 28,
+      "ttl": 0
+    },
+    "林间香草": {
+      "price": 0,
+      "sell": 18,
+      "ttl": 259200
+    },
+    "鸭蛋": {
+      "price": 0,
+      "sell": 12,
+      "ttl": 172800
+    },
+    "孔雀羽": {
+      "price": 0,
+      "sell": 32,
+      "ttl": 0
+    },
+    "粪便": {
+      "price": 0,
+      "sell": 2,
+      "ttl": 0
+    },
+    "腐败物": {
+      "price": 0,
+      "sell": 0,
+      "ttl": 86400,
+      "feed": {
+        "hunger": 5,
+        "health": -18
+      }
+    }
+  },
+  "RECIPES": {
+    "高级饲料": {
+      "inputs": {
+        "谷物": 3,
+        "清水": 1
+      },
+      "count": 2,
+      "cost": 3,
+      "level": 1
+    },
+    "特制零食": {
+      "inputs": {
+        "羊奶": 1,
+        "鸟蛋": 1,
+        "谷物": 2
+      },
+      "count": 2,
+      "cost": 5,
+      "level": 2
+    }
+  },
+  "STARTER_ITEMS": {
+    "普通饲料": 25,
+    "清水": 18,
+    "沐浴露": 12,
+    "药品": 6,
+    "谷物": 15,
+    "零食": 5
+  },
+  "ACHIEVEMENTS": {
+    "first_breed": [
+      "新生命",
+      "养成",
+      "第一次成功繁育",
+      120,
+      3
+    ],
+    "rare": [
+      "闪光伙伴",
+      "收集",
+      "拥有一只变异宠物",
+      200,
+      5
+    ],
+    "collector": [
+      "四季伙伴",
+      "收集",
+      "结识兔子、绵羊、鹦鹉和狐狸",
+      200,
+      5
+    ],
+    "all_species": [
+      "庄园百兽册",
+      "收集",
+      "结识全部12个品种",
+      500,
+      10
+    ],
+    "old_friend": [
+      "相伴一生",
+      "养成",
+      "陪伴一只宠物寿终正寝",
+      200,
+      5
+    ],
+    "builder": [
+      "庄园建筑师",
+      "经营",
+      "拥有六座建筑",
+      180,
+      4
+    ],
+    "orders": [
+      "可靠邻居",
+      "经营",
+      "累计完成三个订单",
+      160,
+      4
+    ],
+    "friends": [
+      "心有灵犀",
+      "养成",
+      "任意宠物好感达到80",
+      120,
+      3
+    ],
+    "seller": [
+      "小小经营家",
+      "经营",
+      "累计出售三只宠物",
+      150,
+      4
+    ]
+  },
+  "CATALOG": {
+    "tile_home": {
+      "key": "tile_home",
+      "name": "青瓦民居",
+      "family": "classic",
+      "category": "住宅",
+      "footprint": [
+        2,
+        2
+      ],
+      "cost": 260,
+      "build_hours": 4,
+      "population": 4,
+      "commerce": 0,
+      "attraction": 0,
+      "tax": 2,
+      "desirability": 1,
+      "description": "古风住宅，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          231,
+          225,
+          204
+        ],
+        "roof": [
+          103,
+          129,
+          133
+        ]
+      }
+    },
+    "tea_house": {
+      "key": "tea_house",
+      "name": "木构茶楼",
+      "family": "classic",
+      "category": "商业",
+      "footprint": [
+        2,
+        2
+      ],
+      "cost": 380,
+      "build_hours": 6,
+      "population": 0,
+      "commerce": 0.08,
+      "attraction": 4,
+      "tax": 3,
+      "desirability": 1,
+      "description": "古风商业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          225,
+          206,
+          174
+        ],
+        "roof": [
+          91,
+          121,
+          123
+        ]
+      }
+    },
+    "inn": {
+      "key": "inn",
+      "name": "飞檐客栈",
+      "family": "classic",
+      "category": "商业",
+      "footprint": [
+        3,
+        3
+      ],
+      "cost": 680,
+      "build_hours": 10,
+      "population": 6,
+      "commerce": 0.12,
+      "attraction": 5,
+      "tax": 4,
+      "desirability": 1,
+      "description": "古风商业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          229,
+          216,
+          184
+        ],
+        "roof": [
+          92,
+          114,
+          126
+        ]
+      }
+    },
+    "glass_home": {
+      "key": "glass_home",
+      "name": "玻璃公寓",
+      "family": "modern",
+      "category": "住宅",
+      "footprint": [
+        3,
+        3
+      ],
+      "cost": 520,
+      "build_hours": 8,
+      "population": 10,
+      "commerce": 0,
+      "attraction": 0,
+      "tax": 4,
+      "desirability": 0,
+      "description": "现代住宅，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          218,
+          227,
+          218
+        ],
+        "roof": [
+          117,
+          178,
+          185
+        ]
+      }
+    },
+    "cafe": {
+      "key": "cafe",
+      "name": "街角咖啡",
+      "family": "modern",
+      "category": "商业",
+      "footprint": [
+        2,
+        2
+      ],
+      "cost": 420,
+      "build_hours": 5,
+      "population": 0,
+      "commerce": 0.06,
+      "attraction": 3,
+      "tax": 3,
+      "desirability": 1,
+      "description": "现代商业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          237,
+          220,
+          196
+        ],
+        "roof": [
+          110,
+          159,
+          161
+        ]
+      }
+    },
+    "office": {
+      "key": "office",
+      "name": "云端写字楼",
+      "family": "modern",
+      "category": "商业",
+      "footprint": [
+        3,
+        3
+      ],
+      "cost": 900,
+      "build_hours": 14,
+      "population": 6,
+      "commerce": 0.1,
+      "attraction": 4,
+      "tax": 7,
+      "desirability": 0,
+      "description": "现代商业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          221,
+          225,
+          214
+        ],
+        "roof": [
+          104,
+          153,
+          175
+        ]
+      }
+    },
+    "cream_home": {
+      "key": "cream_home",
+      "name": "奶油小屋",
+      "family": "country",
+      "category": "住宅",
+      "footprint": [
+        2,
+        2
+      ],
+      "cost": 240,
+      "build_hours": 4,
+      "population": 5,
+      "commerce": 0,
+      "attraction": 0,
+      "tax": 2,
+      "desirability": 1,
+      "description": "田园住宅，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          246,
+          225,
+          185
+        ],
+        "roof": [
+          191,
+          129,
+          103
+        ]
+      }
+    },
+    "flower_shop": {
+      "key": "flower_shop",
+      "name": "花房商店",
+      "family": "country",
+      "category": "商业",
+      "footprint": [
+        2,
+        2
+      ],
+      "cost": 360,
+      "build_hours": 5,
+      "population": 0,
+      "commerce": 0.07,
+      "attraction": 5,
+      "tax": 3,
+      "desirability": 2,
+      "description": "田园商业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          242,
+          229,
+          195
+        ],
+        "roof": [
+          155,
+          172,
+          139
+        ]
+      }
+    },
+    "windmill": {
+      "key": "windmill",
+      "name": "风车粮仓",
+      "family": "country",
+      "category": "产业",
+      "footprint": [
+        3,
+        2
+      ],
+      "cost": 480,
+      "build_hours": 8,
+      "population": 2,
+      "commerce": 0,
+      "attraction": 1,
+      "tax": 3,
+      "desirability": 1,
+      "description": "田园产业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          231,
+          212,
+          170
+        ],
+        "roof": [
+          164,
+          124,
+          88
+        ]
+      }
+    },
+    "brick_workshop": {
+      "key": "brick_workshop",
+      "name": "红砖工坊",
+      "family": "industrial",
+      "category": "产业",
+      "footprint": [
+        3,
+        2
+      ],
+      "cost": 620,
+      "build_hours": 10,
+      "population": 0,
+      "commerce": 0,
+      "attraction": 0,
+      "tax": 6,
+      "desirability": -2,
+      "description": "工业产业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          183,
+          130,
+          105
+        ],
+        "roof": [
+          114,
+          128,
+          127
+        ]
+      }
+    },
+    "iron_store": {
+      "key": "iron_store",
+      "name": "铸铁仓库",
+      "family": "industrial",
+      "category": "产业",
+      "footprint": [
+        3,
+        2
+      ],
+      "cost": 540,
+      "build_hours": 8,
+      "population": 0,
+      "commerce": 0,
+      "attraction": 0,
+      "tax": 5,
+      "desirability": -2,
+      "description": "工业产业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          159,
+          153,
+          136
+        ],
+        "roof": [
+          103,
+          121,
+          125
+        ]
+      }
+    },
+    "steam_factory": {
+      "key": "steam_factory",
+      "name": "蒸汽厂房",
+      "family": "industrial",
+      "category": "产业",
+      "footprint": [
+        3,
+        3
+      ],
+      "cost": 980,
+      "build_hours": 16,
+      "population": 0,
+      "commerce": 0,
+      "attraction": -2,
+      "tax": 12,
+      "desirability": -4,
+      "description": "工业产业，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          178,
+          117,
+          94
+        ],
+        "roof": [
+          105,
+          123,
+          122
+        ]
+      }
+    },
+    "pocket_park": {
+      "key": "pocket_park",
+      "name": "口袋公园",
+      "family": "public",
+      "category": "公共",
+      "footprint": [
+        3,
+        3
+      ],
+      "cost": 400,
+      "build_hours": 6,
+      "population": 0,
+      "commerce": 0,
+      "attraction": 6,
+      "tax": 0,
+      "desirability": 3,
+      "description": "公共公共，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          154,
+          183,
+          128
+        ],
+        "roof": [
+          220,
+          203,
+          159
+        ]
+      }
+    },
+    "town_square": {
+      "key": "town_square",
+      "name": "小镇广场",
+      "family": "public",
+      "category": "公共",
+      "footprint": [
+        4,
+        3
+      ],
+      "cost": 800,
+      "build_hours": 12,
+      "population": 0,
+      "commerce": 0,
+      "attraction": 12,
+      "tax": 0,
+      "desirability": 5,
+      "description": "公共公共，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          211,
+          204,
+          175
+        ],
+        "roof": [
+          140,
+          180,
+          170
+        ]
+      }
+    },
+    "bus_stop": {
+      "key": "bus_stop",
+      "name": "公交站",
+      "family": "public",
+      "category": "公共",
+      "footprint": [
+        2,
+        1
+      ],
+      "cost": 200,
+      "build_hours": 3,
+      "population": 0,
+      "commerce": 0,
+      "attraction": 1,
+      "tax": 0,
+      "desirability": 1,
+      "description": "公共公共，完工且道路通达后提供经营效果。",
+      "palette": {
+        "wall": [
+          217,
+          225,
+          205
+        ],
+        "roof": [
+          91,
+          151,
+          144
+        ]
+      }
+    }
+  },
+  "ROAD_STYLES": {
+    "asphalt": {
+      "name": "沥青街道",
+      "cost": 10,
+      "color": [
+        123,
+        135,
+        137
+      ]
+    },
+    "stone": {
+      "name": "青石街",
+      "cost": 14,
+      "color": [
+        178,
+        177,
+        160
+      ]
+    },
+    "garden": {
+      "name": "花园砖路",
+      "cost": 12,
+      "color": [
+        220,
+        198,
+        160
+      ]
+    }
+  },
+  "GRID_SIZE": 48,
+  "CHUNK_SIZE": 6,
+  "FAMILIES": {
+    "classic": "古风",
+    "modern": "现代",
+    "country": "田园",
+    "industrial": "工业",
+    "public": "公共"
+  },
+  "_ROWS": [
+    [
+      "tile_home",
+      "青瓦民居",
+      "classic",
+      "住宅",
+      [
+        2,
+        2
+      ],
+      260,
+      4,
+      4,
+      0,
+      0,
+      2,
+      1,
+      [
+        231,
+        225,
+        204
+      ],
+      [
+        103,
+        129,
+        133
+      ]
+    ],
+    [
+      "tea_house",
+      "木构茶楼",
+      "classic",
+      "商业",
+      [
+        2,
+        2
+      ],
+      380,
+      6,
+      0,
+      0.08,
+      4,
+      3,
+      1,
+      [
+        225,
+        206,
+        174
+      ],
+      [
+        91,
+        121,
+        123
+      ]
+    ],
+    [
+      "inn",
+      "飞檐客栈",
+      "classic",
+      "商业",
+      [
+        3,
+        3
+      ],
+      680,
+      10,
+      6,
+      0.12,
+      5,
+      4,
+      1,
+      [
+        229,
+        216,
+        184
+      ],
+      [
+        92,
+        114,
+        126
+      ]
+    ],
+    [
+      "glass_home",
+      "玻璃公寓",
+      "modern",
+      "住宅",
+      [
+        3,
+        3
+      ],
+      520,
+      8,
+      10,
+      0,
+      0,
+      4,
+      0,
+      [
+        218,
+        227,
+        218
+      ],
+      [
+        117,
+        178,
+        185
+      ]
+    ],
+    [
+      "cafe",
+      "街角咖啡",
+      "modern",
+      "商业",
+      [
+        2,
+        2
+      ],
+      420,
+      5,
+      0,
+      0.06,
+      3,
+      3,
+      1,
+      [
+        237,
+        220,
+        196
+      ],
+      [
+        110,
+        159,
+        161
+      ]
+    ],
+    [
+      "office",
+      "云端写字楼",
+      "modern",
+      "商业",
+      [
+        3,
+        3
+      ],
+      900,
+      14,
+      6,
+      0.1,
+      4,
+      7,
+      0,
+      [
+        221,
+        225,
+        214
+      ],
+      [
+        104,
+        153,
+        175
+      ]
+    ],
+    [
+      "cream_home",
+      "奶油小屋",
+      "country",
+      "住宅",
+      [
+        2,
+        2
+      ],
+      240,
+      4,
+      5,
+      0,
+      0,
+      2,
+      1,
+      [
+        246,
+        225,
+        185
+      ],
+      [
+        191,
+        129,
+        103
+      ]
+    ],
+    [
+      "flower_shop",
+      "花房商店",
+      "country",
+      "商业",
+      [
+        2,
+        2
+      ],
+      360,
+      5,
+      0,
+      0.07,
+      5,
+      3,
+      2,
+      [
+        242,
+        229,
+        195
+      ],
+      [
+        155,
+        172,
+        139
+      ]
+    ],
+    [
+      "windmill",
+      "风车粮仓",
+      "country",
+      "产业",
+      [
+        3,
+        2
+      ],
+      480,
+      8,
+      2,
+      0,
+      1,
+      3,
+      1,
+      [
+        231,
+        212,
+        170
+      ],
+      [
+        164,
+        124,
+        88
+      ]
+    ],
+    [
+      "brick_workshop",
+      "红砖工坊",
+      "industrial",
+      "产业",
+      [
+        3,
+        2
+      ],
+      620,
+      10,
+      0,
+      0,
+      0,
+      6,
+      -2,
+      [
+        183,
+        130,
+        105
+      ],
+      [
+        114,
+        128,
+        127
+      ]
+    ],
+    [
+      "iron_store",
+      "铸铁仓库",
+      "industrial",
+      "产业",
+      [
+        3,
+        2
+      ],
+      540,
+      8,
+      0,
+      0,
+      0,
+      5,
+      -2,
+      [
+        159,
+        153,
+        136
+      ],
+      [
+        103,
+        121,
+        125
+      ]
+    ],
+    [
+      "steam_factory",
+      "蒸汽厂房",
+      "industrial",
+      "产业",
+      [
+        3,
+        3
+      ],
+      980,
+      16,
+      0,
+      0,
+      -2,
+      12,
+      -4,
+      [
+        178,
+        117,
+        94
+      ],
+      [
+        105,
+        123,
+        122
+      ]
+    ],
+    [
+      "pocket_park",
+      "口袋公园",
+      "public",
+      "公共",
+      [
+        3,
+        3
+      ],
+      400,
+      6,
+      0,
+      0,
+      6,
+      0,
+      3,
+      [
+        154,
+        183,
+        128
+      ],
+      [
+        220,
+        203,
+        159
+      ]
+    ],
+    [
+      "town_square",
+      "小镇广场",
+      "public",
+      "公共",
+      [
+        4,
+        3
+      ],
+      800,
+      12,
+      0,
+      0,
+      12,
+      0,
+      5,
+      [
+        211,
+        204,
+        175
+      ],
+      [
+        140,
+        180,
+        170
+      ]
+    ],
+    [
+      "bus_stop",
+      "公交站",
+      "public",
+      "公共",
+      [
+        2,
+        1
+      ],
+      200,
+      3,
+      0,
+      0,
+      1,
+      0,
+      1,
+      [
+        217,
+        225,
+        205
+      ],
+      [
+        91,
+        151,
+        144
+      ]
+    ]
+  ],
+  "ROAD_REFUND": 0.5,
+  "BUILDING_REFUND": {
+    "building": 0.15,
+    "ready": 0.3
+  },
+  "LAND_ROAD": 2,
+  "LAND_PUBLIC_RADIUS": 6,
+  "LAND_INDUSTRY_RADIUS": 4,
+  "LAND_FACTOR_MIN": 0.75,
+  "LAND_FACTOR_MAX": 1.4,
+  "LAND_FACTOR_PER_POINT": 0.025,
+  "CROP_WINDMILL_BONUS": 0.15,
+  "BUS_TRAFFIC_BONUS": 0.1,
+  "ATTRACTION_TRAFFIC": 0.01,
+  "MAX_VEHICLES": 40,
+  "TRAFFIC_BASE": 5,
+  "TRAFFIC_PER_PERSON": 0.25,
+  "TRAFFIC_SPAWN_INTERVAL": 0.65,
+  "TRAFFIC_PEAK_MULT": 1.25,
+  "TRAFFIC_NIGHT_MULT": 0.45,
+  "TRAFFIC_PEAK_HOURS": [
+    [
+      7,
+      10
+    ],
+    [
+      17,
+      20
+    ]
+  ],
+  "TRAFFIC_NIGHT_HOURS": [
+    5,
+    22
+  ],
+  "TRAFFIC_PER_BUILDING": 1,
+  "TRAFFIC_PER_COMMERCE": 8,
+  "TRAFFIC_NIGHT_SPEED": 0.85,
+  "TRAFFIC_MAX_DT": 0.05,
+  "VEHICLE_GAP": 55,
+  "VEHICLE_TIMEOUT": 9,
+  "VEHICLE_SPEEDS": {
+    "car": 52,
+    "bus": 39,
+    "truck": 35
+  },
+  "VEHICLE_NAMES": {
+    "car": "小轿车",
+    "bus": "公交车",
+    "truck": "货车"
+  },
+  "LANE_OFFSET": 10,
+  "SIDEWALK_OFFSET": 23,
+  "DECORATIONS": {
+    "flowers": [
+      "花坛",
+      20
+    ],
+    "lamp": [
+      "路灯",
+      35
+    ],
+    "bench": [
+      "长椅",
+      25
+    ],
+    "fence": [
+      "围栏",
+      15
+    ],
+    "sign": [
+      "路牌",
+      18
+    ],
+    "tree_oak": [
+      "橡树",
+      45
+    ],
+    "tree_birch": [
+      "白桦",
+      40
+    ],
+    "tree_pine": [
+      "松树",
+      45
+    ],
+    "tree_willow": [
+      "垂柳",
+      55
+    ],
+    "tree_cherry": [
+      "花树",
+      60
+    ],
+    "tree_maple": [
+      "枫树",
+      50
+    ]
+  }
+}

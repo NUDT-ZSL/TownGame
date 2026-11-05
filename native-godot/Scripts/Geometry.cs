@@ -23,6 +23,8 @@ public static class Geometry
     public static readonly string Shader="""
 shader_type spatial;
 render_mode cull_back;
+uniform vec3 season_tint=vec3(1.0);
+uniform float winter=0.0;
 varying float tag;
 void vertex() {
     tag=UV.x;
@@ -34,6 +36,10 @@ void vertex() {
 }
 void fragment() {
     ALBEDO=COLOR.rgb;ROUGHNESS=.85;
+    if(COLOR.g>COLOR.r*1.06 && COLOR.g>COLOR.b*1.05 && tag>-1.5) {
+        ALBEDO*=season_tint;
+        ALBEDO=mix(ALBEDO,vec3(.86,.9,.91),winter*.65);
+    }
     if(tag>0.0)EMISSION=COLOR.rgb*tag*.7;
     if(tag < -1.5) {
         float wave=sin(length(VERTEX.xz)*1.5-TIME*2.0);

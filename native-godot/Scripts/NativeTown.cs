@@ -56,7 +56,7 @@ public sealed partial class NativeGame
         pet["fostered"]=false;pet["pregnancy_rare"]=false;pet["status"]="正常";pet["last_stage"]="幼崽";pet["illness_budget"]=-Math.Log(Math.Max(1e-9,Random()));
         foreach(var field in Rules["PET_INITIAL"]!.AsObject())pet[field.Key]=field.Value!.DeepClone();pet["next_product_ts"]=Now+D(spec,"interval");pet["history"]=new JsonArray();
         pet["personality"]=Choose(Rules["PERSONALITIES"]!.AsArray().Select(p=>p!.GetValue<string>()));pet["next_excretion_ts"]=Now+D(spec,"excretion_interval",Rule("EXCRETION_INTERVAL"));pet["fight_ready_ts"]=0;
-        Pets.Add(pet);WorldRevision++;return pet;
+        Pets.Add(pet);Note(pet,"来到庄园，开始新的生活。");WorldRevision++;return pet;
     }
     string Conceive(JsonObject first,JsonObject second)
     {
@@ -77,7 +77,7 @@ public sealed partial class NativeGame
     {
         foreach(var mother in Pets.ToArray())if(Active(mother!)&&!B(mother!,"fostered")&&D(mother!,"pregnancy_due_ts")>0&&D(mother!,"pregnancy_due_ts")<=Now) {
             string father=S(mother!,"pregnancy_father_id");bool rare=B(mother!,"pregnancy_rare");mother!["pregnancy_due_ts"]=0;
-            var child=NewPet(S(mother,"species"),Random()<.5?"雌":"雄",rare,I(mother,"building_id"));child["mother_id"]=S(mother,"pet_id");child["father_id"]=father;Stat("breeds");Meta["reputation"]=I(Meta,"reputation")+I(Rules,rare?"BREED_RARE_REPUTATION":"BREED_REPUTATION");Log(S(mother,"name")+"的幼崽出生了");
+            var child=NewPet(S(mother,"species"),Random()<.5?"雌":"雄",rare,I(mother,"building_id"));child["mother_id"]=S(mother,"pet_id");child["father_id"]=father;Note(mother,"幼崽"+S(child,"name")+"出生了");Stat("breeds");Meta["reputation"]=I(Meta,"reputation")+I(Rules,rare?"BREED_RARE_REPUTATION":"BREED_REPUTATION");Log(S(mother,"name")+"的幼崽出生了");
         }
     }
     public string PlaceTown(string key,int x,int y,bool community,int orientation=0)

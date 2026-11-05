@@ -17,8 +17,8 @@ public partial class Main
     void Act(string action,JsonObject args)
     {
         try {
-            _selection=Game.Execute(action,args,()=>{Data.Meta["native_real_anchor"]=DateTimeOffset.UtcNow.ToUnixTimeSeconds();Data.Save(SavePath);});
-            if(action is "feed" or "bath" or "play")foreach(var pet in GetChildren().OfType<PetAgent>().Where(p=>p.Ident==NativeGame.S(args,"pet_id")))pet.React(action=="feed"?"eat":"pet");
+            _selection=Game.Execute(action,args,_smoke||_benchmark||_residenceVerification||_farmVerification||_freightVerification?null:()=>{Data.Meta["native_real_anchor"]=DateTimeOffset.UtcNow.ToUnixTimeSeconds();Data.Save(SavePath);});
+            if(action is "feed" or "bath" or "play" or "batch_care")foreach(var pet in GetChildren().OfType<PetAgent>().Where(p=>action=="batch_care"?Game.LastBatchCare.Contains(p.Ident):p.Ident==NativeGame.S(args,"pet_id")))pet.React(action=="feed"||NativeGame.S(args,"kind")=="feed"?"eat":action=="bath"||NativeGame.S(args,"kind")=="bath"?"bath":"pet");
             SyncBusinessWorld();
         } catch(Exception error){Data.Reindex();_selection=error.Message;}
         if(_management?.Visible==true)ShowManagement(_tab);
@@ -90,26 +90,26 @@ public partial class Main
     {
         _tab=tab;
         if(_management==null) {
-            _management=new Window{Title="慢时光 · 经营管理",Size=new(900,720),Transient=true,Theme=_panel.Theme};AddChild(_management);_management.CloseRequested+=()=>_management.Hide();
+            _management=new Window{Title="慢时光 · 经营管理",Size=new(900,720),Transient=true,Visible=false,Theme=_panel.Theme};AddChild(_management);_management.CloseRequested+=()=>_management.Hide();
             var scroll=new ScrollContainer();_management.AddChild(scroll);scroll.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.FullRect);
             scroll.OffsetLeft=16;scroll.OffsetTop=12;scroll.OffsetRight=-16;scroll.OffsetBottom=-12;
             _managementBody=new VBoxContainer{SizeFlagsHorizontal=Control.SizeFlags.ExpandFill};scroll.AddChild(_managementBody);
         }
         foreach(var child in _managementBody!.GetChildren()){_managementBody.RemoveChild(child);child.QueueFree();}
-        var tabs=new HBoxContainer();_managementBody.AddChild(tabs);
+        var tabs=new GridContainer{Columns=5};_managementBody.AddChild(tabs);
         foreach(string name in ManagementTabs){var button=new Button{Text=name};tabs.AddChild(button);button.Pressed+=()=>ShowManagement(name);}
         Text($"金币 {WorldData.I(Data.Meta,"coins")} · 仓库 {Data.Snapshot["inventory"]!.AsArray().Sum(b=>WorldData.I(b!,"quantity"))}/{Game.Storage} · 第{1+(int)((Game.Now-NativeGame.D(Data.Meta,"start_ts"))/86400)}天 {Game.Now%86400/3600:00}时");
         if(tab!="家庭")Text(_selection);
-        if(tab=="家庭")FamilyControls();else if(tab=="宠物")PetControls();else if(tab=="商店")ShopControls();else if(tab=="建造")BuildControls();else if(tab=="自治")AutonomyControls();else if(tab=="环境")EnvironmentControls();else if(tab=="事件")EventControls();
+        if(tab=="外观")AppearanceControls();else if(tab=="照护")CareControls();else if(tab=="财务")FinanceControls();else if(tab=="档案")ArchiveControls();else if(tab=="地图")MapControls();else if(tab=="存档")SaveControls();else if(tab=="家庭")FamilyControls();else if(tab=="宠物")PetControls();else if(tab=="商店")ShopControls();else if(tab=="建造")BuildControls();else if(tab=="自治")AutonomyControls();else if(tab=="环境")EnvironmentControls();else if(tab=="事件")EventControls();
         else if(tab=="订单")foreach(var order in Data.Snapshot["orders"]!.AsArray()) {
             Text($"{WorldData.S(order!,"npc")} · {WorldData.S(order!,"item")}×{WorldData.I(order!,"quantity")} · {WorldData.S(order!,"status")}");
             if(WorldData.S(order!,"status")!="进行中")continue;
             if(WorldData.S(order!,"kind")=="item")ActionButton("交付订单",()=>Act("order",new JsonObject{{"order_id",WorldData.S(order!,"order_id")}}));
             else{Text($"需要：{WorldData.S(order!,"species")} · {WorldData.S(order!,"stage")} · 奖励{WorldData.I(order!,"reward")}金币");ActionButton("交付当前选中宠物（需健康且非孕期）",()=>Act("order",new JsonObject{{"order_id",WorldData.S(order!,"order_id")},{"pet_id",_selectedPet}}));}
-        } else if(tab=="日志")foreach(var row in Data.Snapshot["logs"]!.AsArray().Reverse().Take(80))Text(WorldData.S(row!,"text"));
+        } else if(tab=="日志")LogControls();
         if(!_management.Visible)_management.PopupCentered();
     }
-    static readonly string[] ManagementTabs={"宠物","家庭","商店","建造","自治","环境","订单","事件","日志"};
+    static readonly string[] ManagementTabs={"宠物","家庭","外观","照护","商店","建造","地图","自治","环境","财务","订单","事件","档案","日志","存档"};
     Label Text(string text){var label=new Label{Text=text,AutowrapMode=TextServer.AutowrapMode.WordSmart,CustomMinimumSize=new(840,0)};_managementBody!.AddChild(label);return label;}
     void ActionButton(string text,Action action){var button=new Button{Text=text};button.Pressed+=action;_managementBody!.AddChild(button);}
     OptionButton Options(IEnumerable<string> values){var option=new OptionButton();foreach(string value in values)option.AddItem(value);_managementBody!.AddChild(option);return option;}
@@ -118,6 +118,7 @@ public partial class Main
         foreach(var p in Data.Pets)ActionButton($"{WorldData.S(p!,"name")} · {WorldData.S(p!,"species")} · {Game.Stage(p!)} · 饱食{WorldData.D(p!,"hunger"):0} / 健康{WorldData.D(p!,"health"):0}",()=>{_selectedPet=WorldData.S(p!,"pet_id");ShowManagement("宠物");});
         var pet=Data.Pets.FirstOrDefault(p=>WorldData.S(p!,"pet_id")==_selectedPet);if(pet==null)return;
         Text($"当前：{WorldData.S(pet,"name")} · {WorldData.S(pet,"sex")} · {WorldData.S(pet,"illness_type")} · 伤势{WorldData.D(pet,"injury"):0} · 寄养{NativeGame.B(pet,"fostered")}");
+        ActionButton("查看完整档案与家庭关系",()=>ShowManagement("档案"));ActionButton("编辑外观与收藏样式",()=>ShowManagement("外观"));
         if(!Game.Active(pet))return;
         var rename=new LineEdit{Text=WorldData.S(pet,"name"),MaxLength=16};_managementBody!.AddChild(rename);ActionButton("保存名字",()=>Act("rename",new JsonObject{{"pet_id",_selectedPet},{"name",rename.Text}}));
         foreach(var (label,action) in new[]{("喂普通饲料","feed"),("洗澡","bath"),("互动","play"),("收取产物","collect"),("送医住院","hospitalize"),("治疗（需先住院）","treat")})ActionButton(label,()=>Act(action,new JsonObject{{"pet_id",_selectedPet}}));
@@ -158,8 +159,10 @@ public partial class Main
         var styles=Game.Rules["ROAD_STYLES"]!.AsObject().Select(p=>p.Key).ToArray();var style=Options(styles.Select(k=>NativeGame.S(Game.Rules["ROAD_STYLES"]![k]!,"name")));
         ActionButton("在该格铺路/改铺",()=>Act("road",new JsonObject{{"cx",(int)x.Value},{"cy",(int)y.Value},{"style",styles[style.Selected]}}));
         ActionButton("鼠标铺路（Esc退出）",()=>ArmPlacement("road",new JsonObject{{"style",styles[style.Selected]}}));
+        ActionButton("鼠标自动接入主路（预览费用后松开左键施工）",()=>ArmPlacement("road",new JsonObject{{"style",styles[style.Selected]},{"auto_connect",true}}));
+        ActionButton("鼠标拖拽拆路",()=>ArmPlacement("remove_road",new JsonObject{{"style",styles[style.Selected]}}));
         ActionButton("拆除该格道路",()=>Act("remove_road",new JsonObject{{"cx",(int)x.Value},{"cy",(int)y.Value}}));
-        ActionButton("撤销最近一笔道路操作",()=>Act("undo_road",new JsonObject()));
+        ActionButton("撤销上一笔道路操作（保留20笔，可连续撤销）",()=>Act("undo_road",new JsonObject()));
         ActionButton("在该格开工建筑",()=>Act("build_town",new JsonObject{{"cx",(int)x.Value},{"cy",(int)y.Value},{"catalog_key",keys[catalog.Selected]},{"orientation",orientation.Selected}}));
         ActionButton("鼠标放置所选建筑（Esc退出）",()=>ArmPlacement("build_town",new JsonObject{{"catalog_key",keys[catalog.Selected]},{"orientation",orientation.Selected}}));
         foreach(var b in Game.Rows("town_buildings"))ActionButton("拆除 "+NativeGame.S(Game.Rules["CATALOG"]![NativeGame.S(b!,"catalog_key")]!,"name")+$" ({NativeGame.I(b!,"cx")},{NativeGame.I(b!,"cy")})",()=>Act("remove_town",new JsonObject{{"building_id",NativeGame.S(b!,"building_id")}}));

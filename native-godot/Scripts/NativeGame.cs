@@ -24,7 +24,8 @@ public sealed partial class NativeGame
     public JsonObject Spec(string name,string key)=>Rules[name]![key]!.AsObject();
     public NativeGame(JsonObject data)
     {
-        root=data;if(root["rules"]==null)throw new InvalidOperationException("请重新运行export_godot.py，资源中缺少规则表。");
+        root=data;if(root["rules"]==null)throw new InvalidOperationException("资源包缺少规则表，请修复Content资源。");
+        InitializePresentationData();
         Meta["native_next_hour"]??=Now+Hour;Meta["native_rng"]??=123456789L;
         Meta["native_speed"]??=1;
         InitializeSettlement();InitializeActivities();InitializeResidentHousing();InitializeUrbanPlanning();InitializeFreight();
@@ -36,8 +37,9 @@ public sealed partial class NativeGame
     }
     public void Log(string message)
     {
+        RecordFinance(message);
         var logs=Rows("logs");logs.Add(new JsonObject{{"log_id",Guid.NewGuid().ToString("N")},{"ts",Now},{"text",message}});
-        while(logs.Count>300)logs.RemoveAt(0);
+        while(logs.Count>300){Rows("log_archive").Add(logs[0]!.DeepClone());logs.RemoveAt(0);}
     }
     public bool Active(JsonNode p)=>D(p,"death_ts")==0&&S(p,"departure")=="";
     JsonObject Pet(string id,bool foster=false)
@@ -75,13 +77,15 @@ public sealed partial class NativeGame
     {
         var before=State.DeepClone();long revision=WorldRevision;
         try {
-            string result=Command(action,args);EnsureResidentHomes();CheckAchievements();Validate();persist?.Invoke();return result;
+            string result=Command(action,args);EnsureResidentHomes();CheckAchievements();NotePetChanges(before,result);RecordFinance(result);Validate();persist?.Invoke();return result;
         }catch {root["snapshot"]=before;WorldRevision=revision;throw;}
     }
     string Command(string action,JsonObject a)
     {
         string id=S(a,"pet_id"),item=S(a,"item","普通饲料");int quantity=I(a,"quantity",1);
         switch(action) {
+            case "pet_appearance":case "reset_appearance":case "favorite_style":case "batch_care":return PresentationCommand(action,a);
+            case "road_stroke":return EditRoadStroke(a);
             case "feed": {
                 var p=Pet(id);var food=Spec("ITEMS",item)["feed"]?.AsObject()??throw new InvalidOperationException("不是食物");Take(item,1);
                 foreach(var entry in food)Gain(p,entry.Key,entry.Value!.GetValue<double>());
@@ -138,7 +142,7 @@ public sealed partial class NativeGame
             default:return ActivityCommand(action,a);
         }
     }
-    void Die(JsonNode p,string reason){p["death_ts"]=Now;p["status"]="离世";p["death_reason"]=reason;p["pregnancy_due_ts"]=0;WorldRevision++;Log(S(p,"name")+"离世："+reason);}
+    void Die(JsonNode p,string reason){p["death_ts"]=Now;p["status"]="离世";p["death_reason"]=reason;p["pregnancy_due_ts"]=0;Note(p,"离世："+reason);WorldRevision++;Log(S(p,"name")+"离世："+reason);}
     public void Advance(double seconds)
     {
         if(seconds<=0)return;var before=State.DeepClone();long rev=WorldRevision;
@@ -151,10 +155,11 @@ public sealed partial class NativeGame
                     foreach(string key in new[]{"pregnancy_due_ts","product_expiry_ts"})if(D(p!,key)>Now)end=Math.Min(end,D(p!,key));
                 }
                 PauseResidentWorkAtNight(Now,end);AdvancePets(end);Meta["sim_ts"]=end;ExpireInventory();DeliverBabies();TickActivities();RefreshFreight(false);
+                foreach(var pet in Pets.Where(p=>Active(p!))){string stage=Stage(pet!);if(S(pet!,"last_stage")!=stage){pet!["last_stage"]=stage;Note(pet,"成长阶段："+stage);}}
                 foreach(var b in Rows("town_buildings"))if(S(b!,"status")=="building"&&D(b!,"finish_ts")<=Now){b!["status"]="ready";WorldRevision++;}
                 if(Now>=D(Meta,"native_next_hour")-1e-6){Meta["native_next_hour"]=Now+Hour;TickTown();TickSettlement();}
             }
-            CheckAchievements();Validate();
+            CheckAchievements();RecordFinance("时间推进结算");Validate();
         }catch{root["snapshot"]=before;WorldRevision=rev;throw;}
     }
     void ExpireInventory()

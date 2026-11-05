@@ -29,22 +29,24 @@ public partial class Main : Node3D
     ShaderMaterial _material=null!;
     readonly StandardMaterial3D _red=new(){AlbedoColor=new Color("ed6055"),EmissionEnabled=true,Emission=new Color("9a3028")};
     readonly StandardMaterial3D _green=new(){AlbedoColor=new Color("64e59d"),EmissionEnabled=true,Emission=new Color("288550")};
-    string SavePath=>ProjectSettings.GlobalizePath("user://native-save.json");
+    string SavePath=>OS.GetCmdlineUserArgs().FirstOrDefault(a=>a.StartsWith("--save-path="))?[12..]??ProjectSettings.GlobalizePath("user://native-save.json");
 
     public override void _Ready()
     {
         try {
+            _migrationVerification=OS.GetCmdlineUserArgs().Contains("--verify-migration-scene");
             _farmVerification=OS.GetCmdlineUserArgs().Contains("--verify-farm-manager");
             _freightVerification=OS.GetCmdlineUserArgs().Contains("--verify-freight");
             _residenceVerification=OS.GetCmdlineUserArgs().Contains("--verify-residences");
-            _smoke=OS.GetCmdlineUserArgs().Contains("--smoke");_businessBenchmark=OS.GetCmdlineUserArgs().Contains("--benchmark-simulation");_benchmark=_businessBenchmark||OS.GetCmdlineUserArgs().Contains("--benchmark");
+            _smoke=_migrationVerification||OS.GetCmdlineUserArgs().Contains("--smoke");_businessBenchmark=OS.GetCmdlineUserArgs().Contains("--benchmark-simulation");_benchmark=_businessBenchmark||OS.GetCmdlineUserArgs().Contains("--benchmark");
             if(_benchmark)DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
-            var file=ProjectSettings.GlobalizePath("res://Content/world.json");
-            if(!System.IO.File.Exists(file))throw new Exception("缺少Content/world.json，请先运行tools/export_godot.py");
-            JsonObject root=JsonNode.Parse(System.IO.File.ReadAllText(file))!.AsObject();
+            if(OS.GetCmdlineUserArgs().FirstOrDefault(a=>a.StartsWith("--write-engine-notices=")) is string notices){NativeContent.WriteEngineNotices(notices["--write-engine-notices=".Length..]);GD.Print("ENGINE_NOTICES_WRITTEN");FreeStartupResources();GetTree().Quit();return;}
+            JsonObject root=NativeContent.Load();
+            if(OS.GetCmdlineUserArgs().FirstOrDefault(a=>a.StartsWith("--compact-content=")) is string compact){NativeContent.Compact(root,compact[18..]);GD.Print("NATIVE_ASSETS_PACKED");FreeStartupResources();GetTree().Quit();return;}
+            if(OS.GetCmdlineUserArgs().FirstOrDefault(a=>a.StartsWith("--legacy-check=")) is string check){var imported=LegacyImport.Read(check[15..],root);GD.Print($"LEGACY_IMPORT_VERIFIED pets={imported["pets"]!.AsArray().Count} people={imported["people"]!.AsArray().Count}");FreeStartupResources();GetTree().Quit();return;}
             if(System.IO.File.Exists(SavePath)&&!_smoke&&!_benchmark&&!_residenceVerification&&!_farmVerification&&!_freightVerification&&!OS.GetCmdlineUserArgs().Contains("--verify-rules")&&!OS.GetCmdlineUserArgs().Contains("--ui-smoke")) {
                 var saved=JsonNode.Parse(System.IO.File.ReadAllText(SavePath))!.AsObject();
-                if(WorldData.I(saved,"version")==1&&saved["snapshot"] is JsonObject)root["snapshot"]=saved["snapshot"]!.DeepClone();
+                if(WorldData.I(saved,"version")!=1||saved["snapshot"] is not JsonObject)throw new Exception("新版存档格式不正确，原文件已保留。");root["snapshot"]=saved["snapshot"]!.DeepClone();
             }
             Data=new(root);
             Game=new(root);
@@ -112,7 +114,7 @@ public partial class Main : Node3D
         foreach(var pet in Data.Pets) {
             if(WorldData.S(pet!,"status")=="死亡"||pet!["fostered"]?.GetValue<bool>()==true)continue;
             var species=WorldData.S(pet!,"species");
-            if(Data.Root["prototypes"]![species+":idle:0"] is null)continue;
+            if(!Game.Active(pet!))continue;
             var animal=new PetAgent{Town=this,Ident=WorldData.S(pet!,"pet_id"),Species=species,Position=WorldData.Expand(new(130+petIndex*4,0,99))};
             animal.SetMeta("kind","pet");animal.SetMeta("ident",animal.Ident);AddChild(animal);petIndex++;
         }
@@ -173,7 +175,7 @@ public partial class Main : Node3D
         _stats=new Label();column.AddChild(_stats);
         column.AddChild(new Label{Text="  WASD 平移 · 右键拖动环绕 · 滚轮缩放 · F5保存 · F12截图"});
         _panel=new PanelContainer{Position=new(18,145),CustomMinimumSize=new(480,180),Theme=theme};layer.AddChild(_panel);
-        var body=new VBoxContainer();_panel.AddChild(body);body.AddChild(new Label{Text="  C#原生经营版本 · 迁移中"});
+        var body=new VBoxContainer();_panel.AddChild(body);body.AddChild(new Label{Text="  慢时光 · 小镇生活"});
         _details=new Label{Text=_selection,AutowrapMode=TextServer.AutowrapMode.WordSmart,CustomMinimumSize=new(450,65)};body.AddChild(_details);
         body.AddChild(new Label{Text="照护、商店、建造、自治与家庭已接入C#\n打开经营管理查看资源和任务。"});
         var feed=new Button{Text="给选中的宠物喂普通饲料"};feed.Pressed+=FeedSelected;body.AddChild(feed);
@@ -185,12 +187,12 @@ public partial class Main : Node3D
     }
     public override void _UnhandledInput(InputEvent input)
     {
-        if(_benchmark||_smoke)return;
+        if(_benchmark||_smoke&&!_migrationInput)return;
         if(input is InputEventMouseButton button) {
-            if(button.ButtonIndex==MouseButton.Right)Input.MouseMode=button.Pressed?Input.MouseModeEnum.Captured:Input.MouseModeEnum.Visible;
+            if(button.ButtonIndex==MouseButton.Right){if(button.Pressed)CancelRoadStroke();Input.MouseMode=button.Pressed?Input.MouseModeEnum.Captured:Input.MouseModeEnum.Visible;}
             if(button.Pressed&&button.ButtonIndex==MouseButton.WheelUp)_distance=Math.Max(20,_distance*.9f);
             if(button.Pressed&&button.ButtonIndex==MouseButton.WheelDown)_distance=Math.Min(900,_distance*1.1f);
-            if(button.Pressed&&button.ButtonIndex==MouseButton.Left)Select(button.Position);
+            if(button.Pressed&&button.ButtonIndex==MouseButton.Left){if(_placementAction is "road" or "remove_road")BeginRoadStroke(button.Position);else Select(button.Position);}
         }
         if(input is InputEventMouseMotion motion&&Input.MouseMode==Input.MouseModeEnum.Captured) {
             _yaw-=motion.Relative.X*.004f;_pitch=Math.Clamp(_pitch+motion.Relative.Y*.003f,.25f,1.4f);
@@ -198,7 +200,10 @@ public partial class Main : Node3D
         if(input is InputEventKey key&&key.Pressed&&!key.Echo) {
             if(key.Keycode==Key.F5)Save();
             if(key.Keycode==Key.F12)_=Screenshot();
-            if(key.Keycode==Key.Escape){Input.MouseMode=Input.MouseModeEnum.Visible;_placementAction="";_ghost?.Hide();}
+            if(key.Keycode==Key.M)ShowManagement("地图");
+            if(key.Keycode==Key.Z&&key.CtrlPressed)Act("undo_road",new JsonObject());
+            if(key.Keycode==Key.R&&_placementAction=="build_town")_placementArgs["orientation"]=(NativeGame.I(_placementArgs,"orientation")+1)%4;
+            if(key.Keycode==Key.Escape){Input.MouseMode=Input.MouseModeEnum.Visible;_placementAction="";_ghost?.Hide();CancelRoadStroke();}
         }
     }
     void Select(Vector2 screen)
@@ -210,6 +215,8 @@ public partial class Main : Node3D
         string kind=collider.GetMeta("kind").AsString(),id=collider.GetMeta("ident").AsString();
         if(kind=="manager"){SelectFarmManager();return;}
         if(kind=="vehicle"){_selectedPet="";_selection=FreightDescription(id);return;}
+        if(kind=="herd"){_selectedPet="";_selection=$"公共牧场 · 绵羊{id}\n公共牲畜{NativeGame.I(Game.Commons["stock"]!,"herd")}只 · 饲料{NativeGame.I(Game.Commons["stock"]!,"feed")}份\n牧民通过自治养殖任务消耗饲料并生产食物。";return;}
+        if(kind=="prop"){ShowManagement(id=="bowl"||id=="bath"||id=="toy"?"照护":"环境");return;}
         if(kind=="waste"){Act("clean_waste",new JsonObject{{"waste_id",id}});return;}
         if(kind=="town_building"){SelectResidence(id);return;}
         if(kind=="building"){_selection="这是庄园宠物建筑。居民家庭住在带门牌的住宅，进入经营管理 → 家庭可以定位。";return;}
@@ -235,6 +242,7 @@ public partial class Main : Node3D
         UpdateFarmView(delta);
         UpdateFreight(delta);
         UpdateDistrictActivity(delta);
+        UpdateWorldLife(delta);
         if(_lastPhase!=Phase){UpdateBoulevardSignals(Phase);_lastPhase=Phase;}
         _lastHud+=delta;
         if(_lastHud>.2){_stats.Text=$"  FPS {Engine.GetFramesPerSecond()} · {GameClockText} · 金币 {WorldData.I(Data.Meta,"coins")} · ×{WorldData.I(Data.Meta,"native_speed",1)} · {Game.Season} / {Game.Weather} · 宠物 {Data.Pets.Count(p=>Game.Active(p!))} · 任务 {Game.Jobs.Count}";_details.Text=_selection;_lastHud=0;}
@@ -242,11 +250,12 @@ public partial class Main : Node3D
         if(_residenceVerification)VerifyResidenceScene(delta);
         if(_farmVerification)VerifyFarmManagerScene(delta);
         if(_freightVerification)VerifyFreightScene(delta);
+        if(_migrationVerification)VerifyMigrationScene(delta);
         long stamp=System.Diagnostics.Stopwatch.GetTimestamp();
         if(_frames==300)_benchmarkStart=stamp;
         if(_frames>300)_samples.Add(System.Diagnostics.Stopwatch.GetElapsedTime(_lastFrameStamp,stamp).TotalMilliseconds);
         _lastFrameStamp=stamp;
-        if((_smoke&&_frames>=5)||(_benchmark&&_frames>=1800)) {
+        if((_smoke&&!_migrationVerification&&_frames>=5)||(_benchmark&&_frames>=1800)) {
             if(_benchmark&&_samples.Count>0){_samples.Sort();double elapsed=System.Diagnostics.Stopwatch.GetElapsedTime(_benchmarkStart,stamp).TotalSeconds;
                 GD.Print($"BENCHMARK frame_mean_ms={_samples.Average():F3} frame_p95_ms={_samples[(int)(_samples.Count*.95)]:F3} fps={_samples.Count/elapsed:F1} frames={_samples.Count}");
                 string prefix=_businessBenchmark?"native-business":"native";
@@ -258,7 +267,8 @@ public partial class Main : Node3D
         }
     }
     void UpdateCamera(){_camera.Position=_center+new Vector3(Mathf.Sin(_yaw)*Mathf.Cos(_pitch),Mathf.Sin(_pitch),Mathf.Cos(_yaw)*Mathf.Cos(_pitch))*_distance;_camera.LookAt(_center,Vector3.Up);}
+    void FreeStartupResources(){_camera.Free();_red.Dispose();_green.Dispose();_ghostGood.Dispose();_ghostBad.Dispose();}
     void Save(){try{Data.Meta["native_real_anchor"]=DateTimeOffset.UtcNow.ToUnixTimeSeconds();Data.Save(SavePath);_selection="新版本存档已保存；原SQLite存档保持原样。";}catch(Exception error){_selection="保存失败："+error.Message;}}
     async System.Threading.Tasks.Task Screenshot(){await ToSignal(RenderingServer.Singleton,RenderingServer.SignalName.FramePostDraw);GetViewport().GetTexture().GetImage().SavePng(ProjectSettings.GlobalizePath("user://native-preview.png"));}
-    public override void _Notification(int what){if(what==NotificationApplicationFocusOut)Input.MouseMode=Input.MouseModeEnum.Visible;}
+    public override void _Notification(int what){if(what==NotificationApplicationFocusOut){Input.MouseMode=Input.MouseModeEnum.Visible;CancelRoadStroke();}}
 }

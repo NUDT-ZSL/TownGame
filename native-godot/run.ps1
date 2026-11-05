@@ -1,4 +1,4 @@
-﻿param([switch]$Editor,[switch]$Smoke,[switch]$Benchmark,[switch]$BenchmarkSimulation,[switch]$Verify,[switch]$UiSmoke,[switch]$ResidenceSmoke,[switch]$ResidencePreview,[switch]$FarmSmoke,[switch]$FarmPreview,[switch]$FreightSmoke,[switch]$FreightPreview)
+﻿param([switch]$Editor,[switch]$Smoke,[switch]$Benchmark,[switch]$BenchmarkSimulation,[switch]$Verify,[switch]$UiSmoke,[switch]$ResidenceSmoke,[switch]$ResidencePreview,[switch]$FarmSmoke,[switch]$FarmPreview,[switch]$FreightSmoke,[switch]$FreightPreview,[switch]$MigrationSmoke,[switch]$MigrationPreview,[string]$LogPath)
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path -Parent $PSScriptRoot
 $taskDotnet=Join-Path $taskRoot '.tools\dotnet\dotnet.exe'
@@ -10,10 +10,11 @@ $env:DOTNET_CLI_HOME=Join-Path $taskRoot '.tools\dotnet-home'
 $env:NUGET_PACKAGES=Join-Path $taskRoot '.tools\nuget'
 $env:DOTNET_SKIP_FIRST_TIME_EXPERIENCE='1'
 $env:DOTNET_CLI_TELEMETRY_OPTOUT='1'
-if (!(Test-Path (Join-Path $PSScriptRoot 'Content\world.json'))) {throw '请先使用Pet环境执行 python tools/export_godot.py 生成场景。'}
+if (!(Test-Path (Join-Path $PSScriptRoot 'Content\world.json.gz')) -and !(Test-Path (Join-Path $PSScriptRoot 'Content\world.json'))) {throw '缺少原生场景资源，请恢复Content目录。'}
 & $taskDotnet build (Join-Path $PSScriptRoot 'TownNative.csproj') --configfile (Join-Path $PSScriptRoot 'NuGet.Config')
 if ($LASTEXITCODE -ne 0) {throw 'C#编译失败'}
 $taskArgs=@('--path',$PSScriptRoot)
+if ($LogPath) {$taskArgs+=@('--log-file',$LogPath)}
 if ($Editor) {$taskArgs+='--editor'}
 if ($Smoke) {$taskArgs+=@('--headless','--','--smoke')}
 if ($Verify) {$taskArgs+=@('--headless','--','--verify-rules')}
@@ -26,5 +27,7 @@ if ($FarmSmoke) {$taskArgs+=@('--headless','--','--verify-farm-manager')}
 if ($FarmPreview) {$taskArgs+=@('--','--verify-farm-manager')}
 if ($FreightSmoke) {$taskArgs+=@('--headless','--','--verify-freight')}
 if ($FreightPreview) {$taskArgs+=@('--','--verify-freight')}
+if ($MigrationSmoke) {$taskArgs+=@('--headless','--','--verify-migration-scene')}
+if ($MigrationPreview) {$taskArgs+=@('--','--verify-migration-scene')}
 & $taskGodot @taskArgs
 exit $LASTEXITCODE
