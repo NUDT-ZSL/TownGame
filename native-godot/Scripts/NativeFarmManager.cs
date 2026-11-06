@@ -60,15 +60,18 @@ public sealed partial class NativeGame
         var deferred=Meta["manager_deferred"]!.AsObject();
         foreach(string key in deferred.Where(pair=>pair.Value!.GetValue<double>()<=Now).Select(pair=>pair.Key).ToArray())deferred.Remove(key);
         int free=Storage-Rows("inventory").Sum(b=>I(b!,"quantity"));
-        var hungry=Pets.Where(p=>Active(p!)&&!B(p!,"fostered")&&D(p!,"hunger")<Rule("CARE_FEED_THRESHOLD",70)).OrderBy(p=>D(p!,"hunger")).ThenBy(p=>S(p!,"pet_id"),StringComparer.Ordinal).ToArray();
-        var pet=Stock("普通饲料")>0?hungry.FirstOrDefault(p=>!ManagerDeferred("feed:"+S(p!,"pet_id"))):null;
-        var waste=Rows("waste").Where(w=>I(w!,"quantity")>0&&I(w!,"quantity")<=free&&!ManagerDeferred("clean:"+S(w!,"waste_id"))).OrderBy(w=>D(w!,"created_ts")).ThenBy(w=>S(w!,"waste_id"),StringComparer.Ordinal).FirstOrDefault();
+        var hungry=Pets.Where(p=>Active(p!)&&!B(p!,"fostered")&&D(p!,"hunger")<Rule("CARE_FEED_THRESHOLD",70))
+            .OrderByDescending(p=>D(p!,"hunger")<35).ThenByDescending(p=>ManagerPlotPriority(I(p!,"building_id"),"feed"))
+            .ThenBy(p=>D(p!,"hunger")).ThenBy(p=>S(p!,"pet_id"),StringComparer.Ordinal).ToArray();
+        var pet=!ManagerFeedCapReached&&Stock("普通饲料")>0?hungry.FirstOrDefault(p=>!ManagerDeferred("feed:"+S(p!,"pet_id"))):null;
+        var waste=Rows("waste").Where(w=>I(w!,"quantity")>0&&I(w!,"quantity")<=free&&!ManagerDeferred("clean:"+S(w!,"waste_id")))
+            .OrderByDescending(w=>ManagerPlotPriority(I(w!,"building_id"),"clean")).ThenBy(w=>D(w!,"created_ts")).ThenBy(w=>S(w!,"waste_id"),StringComparer.Ordinal).FirstOrDefault();
         // A critical hunger need takes priority. Otherwise alternate both duties
         // so a dirty enclosure cannot indefinitely postpone feeding, or vice versa.
         bool feed=pet!=null&&(waste==null||D(pet,"hunger")<35||S(Meta,"manager_last_kind")=="clean");
         JsonNode? target=feed?pet:waste;
         if(target==null) {
-            string status=hungry.Length>0&&Stock("普通饲料")==0?"普通饲料不足，等待补充":Rows("waste").Any(w=>I(w!,"quantity")>free)?"仓库已满，等待腾空":deferred.Count>0?"任务暂时无法到达，稍后重试":"动物已吃饱，环境整洁，休息待命";
+            string status=hungry.Length>0&&ManagerFeedCapReached?"已达到今日喂食上限":hungry.Length>0&&Stock("普通饲料")==0?"普通饲料不足，等待补充":Rows("waste").Any(w=>I(w!,"quantity")>free)?"仓库已满，等待腾空":deferred.Count>0?"任务暂时无法到达，稍后重试":"动物已吃饱，环境整洁，休息待命";
             ClearManagerJob(status,Rule("MANAGER_SCAN_INTERVAL",Hour));return;
         }
         string kind=feed?"feed":"clean";
@@ -95,6 +98,7 @@ public sealed partial class NativeGame
         if(ManagerSceneDriven?!B(job,"arrived"):D(job,"end_ts")>Now)return false;
         if(!ManagerTargetValid(job)){ClearManagerJob("任务目标已变化，重新安排");return false;}
         string kind=S(job,"kind");
+        if(kind=="feed"&&ManagerFeedCapReached){ClearManagerJob("已达到今日喂食上限");return false;}
         if(kind=="feed"&&Stock("普通饲料")==0){ClearManagerJob("普通饲料不足，等待补充",Rule("MANAGER_RETRY_INTERVAL",Hour/2));return false;}
         if(kind=="clean"&&Rows("inventory").Sum(b=>I(b!,"quantity"))+I(ManagerWaste(job)!,"quantity")>Storage){ClearManagerJob("仓库已满，等待腾空",Rule("MANAGER_RETRY_INTERVAL",Hour/2));return false;}
         var before=State.DeepClone();long revision=WorldRevision;
@@ -103,6 +107,7 @@ public sealed partial class NativeGame
             else {
                 var pet=ManagerPet(job)!;
                 Take("普通饲料",1);
+                RecordManagerDailyFeed();
                 foreach(var effect in Spec("ITEMS","普通饲料")["feed"]!.AsObject())Gain(pet,effect.Key,effect.Value!.GetValue<double>());
                 Meta["manager_fed"]=I(Meta,"manager_fed")+1;Meta["manager_last_feed_ts"]=Now;
                 Log("农场管理员给"+S(pet,"name")+"喂了普通饲料");

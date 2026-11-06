@@ -10,11 +10,11 @@ public partial class Main
     Node3D? _freightCargo;
     Label3D? _freightLabel;
     string _freightRoutePhase="",_freightDriver="";
-    long _freightRoadRevision=-1;
     double _freightRefresh,_freightWork,_freightRetry;
     Vector3 _freightGoal;
     bool _freightHasRoute;
     const float FreightLane=1.65f,FreightWalk=3.35f;
+    const double FreightDockWorkSeconds=3;
     public bool FreightAboard(string id)=>Game.IsFreightDriver(id)&&NativeGame.S(Game.FreightState,"phase") is "to_source" or "loading" or "to_destination" or "unloading" or "to_depot";
     public string FreightActivity(string id)=>Game.IsFreightDriver(id)?NativeGame.S(Game.FreightState,"status"):"";
     public string FreightDescription(string id)
@@ -44,7 +44,8 @@ public partial class Main
         _freightTruck.Rotation=new(0,state["world_yaw"]!=null?(float)NativeGame.D(state,"world_yaw"):Mathf.Atan2(direction.X,direction.Z),0);
         _freightTruck.Visual.Mesh=Prototype("truck");_freightTruck.SetMeta("kind","vehicle");_freightTruck.SetMeta("ident",_freightTruck.Ident);
         AddChild(_freightTruck);Agents.Add(_freightTruck);
-        _freightCabDriver=new MeshInstance3D{Mesh=Prototype("person-0"),Scale=Vector3.One*.7f,Position=new(.4f,.8f,1.8f)};_freightTruck.Visual.AddChild(_freightCabDriver);
+        _freightCabDriver=new MeshInstance3D{Mesh=ResidentOutfitBody("司机",0,0),Scale=Vector3.One*.7f,Position=new(.4f,.8f,1.8f)};_freightTruck.Visual.AddChild(_freightCabDriver);
+        _freightCabDriver.AddChild(new MeshInstance3D{Name="DriverCap",Mesh=ResidentOutfitPieces("司机")});
         _freightCargo=new Node3D();_freightTruck.Visual.AddChild(_freightCargo);
         var crateMaterial=new StandardMaterial3D{AlbedoColor=new Color("cfac72")};
         for(int i=0;i<4;i++)_freightCargo.AddChild(new MeshInstance3D{Mesh=new BoxMesh{Size=new(.65f,.55f,.75f)},MaterialOverride=crateMaterial,Position=new(i%2==0?-.38f:.38f,1.85f,-.5f-i/2*.9f)});
@@ -79,14 +80,14 @@ public partial class Main
     }
     public bool TryAssignFreightRoute(RoadAgent actor)
     {
+        if(_routeRefreshPending.Contains(actor))return actor==_freightTruck||Game.IsFreightDriver(actor.Ident);
         if(actor.Ident==NativeGame.S(Game.FreightState,"vehicle_id")){
             actor.Wait=1;
             string phase=NativeGame.S(Game.FreightState,"phase");
             if(phase is not ("to_source" or "to_destination" or "to_depot")){actor.Path.Clear();actor.Index=0;return true;}
-            long revision=NativeGame.I(Data.Meta,"road_revision");
-            if(phase==_freightRoutePhase&&revision==_freightRoadRevision&&_freightHasRoute)return true;
+            if(phase==_freightRoutePhase&&_freightHasRoute)return true;
             if(_freightRetry>0)return true;
-            _freightRoutePhase=phase;_freightRoadRevision=revision;
+            _freightRoutePhase=phase;
             string zone=phase=="to_source"?NativeGame.S(Game.FreightState,"source"):phase=="to_destination"?NativeGame.S(Game.FreightState,"destination"):"estate";
             var start=WorldData.Grid(actor.Position);if(!Data.Roads.ContainsKey(start))start=Data.Roads.Keys.MinBy(c=>(WorldData.Cell(c)-actor.Position).LengthSquared());
             var route=FreightRoadRoute(actor,start,FreightStop(zone));actor.Path.Clear();actor.Index=0;_freightHasRoute=route.Count>0;
@@ -152,7 +153,7 @@ public partial class Main
                 else {state["phase"]=phase=="to_source"?"loading":"unloading";state["status"]=phase=="to_source"?"司机在生产区装货":"司机在商业区卸货";}
             }
         }else if(phase is "loading" or "unloading"){
-            _freightWork+=delta;if(_freightWork>=3){if(phase=="loading")Game.LoadFreight();else Game.DeliverFreight();_freightWork=0;_freightRoutePhase="";_freightHasRoute=false;}
+            _freightWork+=delta;if(_freightWork>=FreightDockWorkSeconds){if(phase=="loading")Game.LoadFreight();else Game.DeliverFreight();_freightWork=0;_freightRoutePhase="";_freightHasRoute=false;}
         }else {_freightTruck!.Path.Clear();_freightTruck.Index=0;_freightTruck.Velocity=Vector3.Zero;_freightHasRoute=false;}
         _freightCabDriver.Visible=driver!=""&&FreightAboard(driver);
         _freightCargo.Visible=NativeGame.I(state,"cargo_count")>0;

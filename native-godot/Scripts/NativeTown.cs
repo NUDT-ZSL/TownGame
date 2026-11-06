@@ -16,8 +16,12 @@ public sealed partial class NativeGame
     HashSet<Cell> Connected()
     {
         CheckMapCache();if(connectedCache!=null)return connectedCache;
-        var roads=RoadCells();var found=new HashSet<Cell>();var q=new Queue<Cell>();var start=Portal("estate");
-        if(roads.Contains(start)){q.Enqueue(start);found.Add(start);}while(q.Count>0){var c=q.Dequeue();foreach(var d in Directions){var n=new Cell(c.X+d.X,c.Y+d.Y);if(roads.Contains(n)&&found.Add(n))q.Enqueue(n);}}return connectedCache=found;
+        return connectedCache=ReachableRoads(RoadCells());
+    }
+    HashSet<Cell> ReachableRoads(HashSet<Cell> roads)
+    {
+        var found=new HashSet<Cell>();var q=new Queue<Cell>();var start=Portal("estate");
+        if(roads.Contains(start)){q.Enqueue(start);found.Add(start);}while(q.Count>0){var c=q.Dequeue();foreach(var d in Directions){var n=new Cell(c.X+d.X,c.Y+d.Y);if(roads.Contains(n)&&found.Add(n))q.Enqueue(n);}}return found;
     }
     public int ZoneLevel(string name)=>Rows("town_zones").Where(z=>S(z!,"zone_id")==name).Select(z=>I(z!,"level")).FirstOrDefault();
     public void SetZone(string name,int level){var zone=Rows("town_zones").First(z=>S(z!,"zone_id")==name)!;zone["level"]=level;}
@@ -43,29 +47,38 @@ public sealed partial class NativeGame
         long serial=(long)D(Meta,"native_serial")+1;Meta["native_serial"]=serial;
         return Convert.ToHexString(MD5.HashData(Encoding.UTF8.GetBytes($"{kind}:{Now:R}:{serial}"))).ToLowerInvariant();
     }
+    bool CompanionIntakeFull(bool countPregnancies)=>IncubatingEggCount()+Pets.Count(p=>Active(p!))+
+        (countPregnancies?Pets.Count(p=>Active(p!)&&D(p!,"pregnancy_due_ts")>0):0)>=I(Rules,"PET_LIMIT",100);
+    bool HomeHasSpace(JsonNode home)=>Used(I(home,"building_id"))<Slots(home);
+    bool CompanionHomeHasSpace(string kind)=>Rows("buildings").OfType<JsonNode>().Any(home=>S(home,"kind")==kind&&HomeHasSpace(home));
+    string[] AdoptionCandidates()=>Rules["SPECIES"]!.AsObject().Where(pair=>!B(pair.Value!,"purchase_only")&&CompanionHomeHasSpace(S(pair.Value!,"building")))
+        .Select(pair=>pair.Key).ToArray();
+    internal string AdoptionReason()=>D(Meta,"adopt_ready_ts")>Now?"公益领养冷却中":
+        CompanionIntakeFull(true)?"宠物数量已达上限":AdoptionCandidates().Length==0?"没有适配的居所空位":"";
+    internal string CompanionPurchaseReason(string home,int cost)=>!Rows("buildings").Any(building=>S(building!,"kind")=="商店")?"需要在庄园建造商店":
+        CompanionIntakeFull(true)?"宠物数量已达上限":!CompanionHomeHasSpace(home)?$"需要有空位的{home}":I(Meta,"coins")<cost?"金币不足":"";
+
     JsonObject NewPet(string species,string sex,bool rare,int? homeId=null)
     {
-        if(Pets.Count(p=>Active(p!))+(homeId==null?Pets.Count(p=>Active(p!)&&D(p!,"pregnancy_due_ts")>0):0)>=I(Rules,"PET_LIMIT",100))throw new InvalidOperationException("宠物数量已达上限");
+        if(CompanionIntakeFull(homeId==null))throw new InvalidOperationException("宠物数量已达上限");
         var spec=Spec("SPECIES",species);
-        var home=Rows("buildings").FirstOrDefault(b=>(homeId==null?S(b!,"kind")==S(spec,"building"):I(b!,"building_id")==homeId)&&Used(I(b!,"building_id"))<Slots(b!))??throw new InvalidOperationException("没有适配的居所空位");
+        var home=Rows("buildings").FirstOrDefault(b=>(homeId==null?S(b!,"kind")==S(spec,"building"):I(b!,"building_id")==homeId)&&HomeHasSpace(b!))??throw new InvalidOperationException("没有适配的居所空位");
         var pet=Pets.Count>0?Pets[0]!.DeepClone().AsObject():new JsonObject();string ident=NextId("pet");
         pet["pet_id"]=ident;pet["species"]=species;pet["sex"]=sex;pet["name"]="小"+species+ident[..3];pet["rare"]=rare;
         pet["birth_ts"]=Now;pet["last_update_ts"]=Now;pet["lifespan_max"]=D(spec,"life")*(rare?Rule("RARE_LIFE_FACTOR",1.5):1);pet["building_id"]=I(home,"building_id");
         foreach(string key in new[]{"death_ts","paused_seconds","product_ready_ts","product_expiry_ts","breed_ready_ts","interact_ready_ts","injury","treatment_ready_ts","pregnancy_start_ts","pregnancy_due_ts"})pet[key]=0;
         foreach(string key in new[]{"death_reason","departure","illness_type","mate_id","mother_id","father_id","pregnancy_father_id"})pet[key]="";
         pet["fostered"]=false;pet["pregnancy_rare"]=false;pet["status"]="正常";pet["last_stage"]="幼崽";pet["illness_budget"]=-Math.Log(Math.Max(1e-9,Random()));
+        pet.Remove("juvenile_care_ts");
         foreach(var field in Rules["PET_INITIAL"]!.AsObject())pet[field.Key]=field.Value!.DeepClone();pet["next_product_ts"]=Now+D(spec,"interval");pet["history"]=new JsonArray();
         pet["personality"]=Choose(Rules["PERSONALITIES"]!.AsArray().Select(p=>p!.GetValue<string>()));pet["next_excretion_ts"]=Now+D(spec,"excretion_interval",Rule("EXCRETION_INTERVAL"));pet["fight_ready_ts"]=0;
         Pets.Add(pet);Note(pet,"来到庄园，开始新的生活。");WorldRevision++;return pet;
     }
     string Conceive(JsonObject first,JsonObject second)
     {
-        if(first==second||S(first,"species")!=S(second,"species")||S(first,"sex")==S(second,"sex"))throw new InvalidOperationException("需要同物种的异性伙伴");
-        if(I(first,"building_id")!=I(second,"building_id")||S(Home(first),"kind")=="宠物医院")throw new InvalidOperationException("请先同居，住院期间不能繁育");
-        if(Expecting(first)||Expecting(second)||D(first,"injury")>0||D(second,"injury")>0||Pets.Count(p=>Active(p!))+Pets.Count(p=>Active(p!)&&D(p!,"pregnancy_due_ts")>0)>=I(Rules,"PET_LIMIT"))throw new InvalidOperationException("已有孕期、伤势或缺少人口空位");
-        foreach(var p in new[]{first,second})if(Stage(p)!="成年"||D(p,"health")<Rule("BREED_MIN_HEALTH",50)||D(p,"favor")<Rule("BREED_FAVOR",35)||D(p,"breed_ready_ts")>Now||D(p,"pregnancy_due_ts")>0||S(p,"illness_type")!="")throw new InvalidOperationException("年龄、健康、好感或繁育冷却不满足");
-        if(new[]{S(first,"mother_id"),S(first,"father_id")}.Where(s=>s!="").Intersect(new[]{S(second,"mother_id"),S(second,"father_id"),S(second,"pet_id")}).Any()||S(second,"mother_id")==S(first,"pet_id")||S(second,"father_id")==S(first,"pet_id"))throw new InvalidOperationException("近亲不能繁育");
-        var mother=S(first,"sex")=="雌"?first:second;var father=mother==first?second:first;if(Used(I(mother,"building_id"))+1>Slots(Home(mother)))throw new InvalidOperationException("需要预留幼崽空位");
+        var blocked=CheckBreeding(first,second).FirstOrDefault(check=>check.Reason.Length>0);
+        if(blocked!=null)throw new InvalidOperationException(blocked.Reason);
+        var mother=S(first,"sex")=="雌"?first:second;var father=mother==first?second:first;
         Pair(first,second);Pay(I(Rules,"BREED_COST",100));foreach(var pair in Rules["BREED_MATERIALS"]!.AsObject())Take(pair.Key,pair.Value!.GetValue<int>());
         bool success=Random()<Rule("CONCEPTION_CHANCE",.85);double cooldown=Now+Rule(success?"BREED_COOLDOWN":"CONCEPTION_RETRY",Day);
         first["breed_ready_ts"]=cooldown;second["breed_ready_ts"]=cooldown;
@@ -94,12 +107,19 @@ public sealed partial class NativeGame
         var c=new Cell(x,y);if(!Allowed(c)||RoadCells().Contains(c))throw new InvalidOperationException("此处不可铺路");Pay(10);AppendRoad(c,10);return "道路已铺设";
     }
     void AppendRoad(Cell c,int paid){Rows("roads").Add(new JsonObject{{"road_id",$"{c.X},{c.Y}"},{"cx",c.X},{"cy",c.Y},{"road_style","asphalt"},{"built_ts",Now},{"paid",paid}});Meta["road_revision"]=I(Meta,"road_revision")+1;WorldRevision++;}
+    internal bool OrderPetFits(JsonNode pet,JsonNode order)=>
+        S(pet,"species")==S(order,"species")&&Stage(pet)==S(order,"stage")&&Disease(pet)==""&&D(pet,"injury")<=0&&!Expecting(pet);
+
     string DeliverOrder(string id,string petId)
     {
         var order=Rows("orders").FirstOrDefault(o=>S(o!,"order_id")==id)??throw new InvalidOperationException("订单不存在");
         if(S(order,"status")!="进行中"||D(order,"expiry_ts")<=Now)throw new InvalidOperationException("订单已结束");
-        if(S(order,"kind")=="item")Take(S(order,"item"),I(order,"quantity"));else{var p=Pet(petId);if(S(p,"species")!=S(order,"species")||Stage(p)!=S(order,"stage")||Disease(p)!=""||D(p,"injury")>0||Expecting(p))throw new InvalidOperationException("需要指定品种、年龄且健康、非孕期的伙伴");p["departure"]="订单交付";p["product_ready_ts"]=0;p["product_expiry_ts"]=0;WorldRevision++;}
-        Meta["coins"]=I(Meta,"coins")+I(order,"reward");Meta["reputation"]=I(Meta,"reputation")+I(order,"reputation");order["status"]="完成";Stat("orders");return "订单已交付";
+        if(S(order,"kind")=="item"){
+            string owner=OrderReservationOwner(id);
+            TakeReservedInventory(S(order,"item"),I(order,"quantity"),owner);
+            ReleaseStockReservation(owner);
+        }else if(S(order,"kind")!="checkin"){var p=Pet(petId);if(!OrderPetFits(p,order))throw new InvalidOperationException("需要指定品种、年龄且健康、非孕期的伙伴");p["departure"]="订单交付";p["departure_ts"]=Now;p["product_ready_ts"]=0;p["product_expiry_ts"]=0;WorldRevision++;}
+        Meta["coins"]=I(Meta,"coins")+I(order,"reward");Meta["reputation"]=I(Meta,"reputation")+I(order,"reputation");order["status"]="完成";order["resolved_ts"]=Now;Stat("orders");return FinishNeighborhoodOrder(order);
     }
     void TickTown()
     {

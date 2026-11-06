@@ -21,6 +21,26 @@ public static class NativeVerification
         Test("autonomy_pause",(g,r)=>{g.Advance(3600);int count=g.People.Count(p=>NativeGame.S(p!,"role")=="居民");g.Execute("autonomy",new JsonObject());Check(g.Jobs.Count==0,"预约工作取消");g.Advance(86400);Check(g.People.Count(p=>NativeGame.S(p!,"role")=="居民")==count,"暂停不填满居民人口");});
         Test("offspring",(g,r)=>{g.Commons["enabled"]=false;g.Rules["CONCEPTION_CHANCE"]=1;foreach(var p in g.Pets){p!["birth_ts"]=g.Now-NativeGame.D(p,"lifespan_max")*.4;p["favor"]=60;p["illness_budget"]=1000;}int count=g.Pets.Count;g.Execute("breed",new JsonObject{{"pet_id",NativeGame.S(g.Pets[0]!,"pet_id")},{"mate_id",NativeGame.S(g.Pets[1]!,"pet_id")}});g.Advance(86400);Check(g.Pets.Count==count+1,"宠物幼崽实际出生");});
         Test("offline_incremental_equivalence",(g,r)=>{var copy=Fixture();copy["snapshot"]=g.State.DeepClone();var other=new NativeGame(copy);g.Advance(2*86400);for(int i=0;i<48;i++)other.Advance(3600);Check(g.Commons.ToJsonString()==other.Commons.ToJsonString(),"离线与逐小时公共状态一致");});
+        Test("offline_limits_and_pause",(g,r)=>{
+            const long savedAt=1_700_000_000;
+            long resumedAt=savedAt+(long)NativeGame.Day;
+            g.Meta["native_real_anchor"]=savedAt;
+            g.Meta["native_speed"]=600;
+            g.Meta.Remove(NativeGame.OfflineLimitKey);
+            double before=g.Now;
+            var report=g.SettleOffline(resumedAt);
+            Check(report is { Paused:false }&&report.Elapsed==NativeGame.Day&&report.Advanced==4*NativeGame.Hour&&
+                Math.Abs(g.Now-before-4*NativeGame.Hour)<1e-6,"旧存档默认按正常速度推进且最多四小时");
+            Check(NativeGame.I(g.Meta,"native_speed")==600&&g.SettleOffline(resumedAt)==null,"保留在线倍率且不重复结算");
+            g.Meta[NativeGame.OfflineLimitKey]=0;
+            before=g.Now;
+            report=g.SettleOffline(resumedAt+3600);
+            Check(report is { Paused:true, Advanced:0 }&&g.Now==before&&NativeGame.D(g.Meta,"native_real_anchor")==resumedAt+3600,
+                "暂停离线推进并消耗离线区间");
+            g.Meta[NativeGame.OfflineLimitKey]=1;
+            report=g.SettleOffline(resumedAt+5400);
+            Check(report?.Advanced==1800&&Math.Abs(g.Now-before-1800)<1e-6,"更改离线上限后仅推进新经过的时间");
+        });
         Test("order_reward",(g,r)=>{var order=g.Rows("orders").First(o=>NativeGame.S(o!,"kind")=="item")!;int need=NativeGame.I(order,"quantity"),coins=NativeGame.I(g.Meta,"coins");g.Add(NativeGame.S(order,"item"),need);g.Execute("order",new JsonObject{{"order_id",NativeGame.S(order,"order_id")}});Check(NativeGame.I(g.Meta,"coins")==coins+NativeGame.I(order,"reward"),"原订单奖励");});
         Test("sanitation_emit",(g,r)=>{g.Commons["enabled"]=false;g.Advance(6*3600);Check(g.Rows("waste").Count>0,"宠物定时排泄");int count=g.Rows("waste").Sum(w=>NativeGame.I(w!,"quantity"));g.Execute("clean_waste",new JsonObject());Check(g.Rows("waste").Count==0&&g.Stock("粪便")==count,"清扫入库数量守恒");});
         Test("sanitation_atomic_capacity",(g,r)=>{g.Rows("waste").Add(new JsonObject{{"waste_id","test"},{"building_id",0},{"quantity",1},{"created_ts",g.Now}});g.Rows("inventory").Clear();g.Add("清水",g.Storage);string before=g.State.ToJsonString();try{g.Execute("clean_waste",new JsonObject());throw new Exception("仓满未拒绝");}catch(InvalidOperationException){}Check(g.State.ToJsonString()==before,"仓满不丢失粪便");});
@@ -50,6 +70,13 @@ public static class NativeVerification
         passed+=NativeUrbanVerification.Run(source);
         passed+=NativeFreightVerification.Run(source);
         passed+=NativeMigrationVerification.Run(source);
+        passed+=NativeStockReservationVerification.Run(source);
+        passed+=NativeNeighborhoodVerification.Run(source);
+        passed+=NativeManagementExpansionVerification.Run(source);
+        passed+=NativeOperationsVerification.Run(source);
+        passed+=NativeTownLifeVerification.Run(source);
+        passed+=NativeTownLifeNextVerification.Run(source);
+        passed+=NativeEconomyPlanningVerification.Run(source);
         Godot.GD.Print($"NATIVE_RULES_VERIFIED tests={passed}");
     }
 }

@@ -26,6 +26,7 @@ public sealed partial class NativeGame
     {
         string id=S(pet,"pet_id");return Meta["pet_appearances"]?[id]?.GetValue<int>()??NativeAppearance.Default(id);
     }
+    internal int InitialAppearance(string id)=>Meta["pet_initial_appearances"]?[id]?.GetValue<int>()??NativeAppearance.Default(id);
     void Note(JsonNode pet,string text)
     {
         pet["history"]??=new JsonArray();pet["history"]!.AsArray().Add(new JsonObject{{"ts",Now},{"text",text}});
@@ -38,7 +39,7 @@ public sealed partial class NativeGame
     public readonly System.Collections.Generic.List<string> LastBatchCare=new();
     string PresentationCommand(string action,JsonObject args)
     {
-        if(action=="batch_care")return BatchCare(S(args,"kind"));
+        if(action=="batch_care")return BatchCare(S(args,"kind"),S(args,"plan"),args["pet_ids"]);
         if(action=="favorite_style"){
             string species=S(args,"species");int variant=I(args,"variant",-1);ValidateStyle(species,variant);
             var favorites=Meta["style_favorites"]!.AsObject();favorites[species]??=new JsonArray();var rows=favorites[species]!.AsArray();
@@ -47,7 +48,7 @@ public sealed partial class NativeGame
             if(rows.Count>=12)throw new InvalidOperationException("每个品种最多收藏12种外观");rows.Add(variant);return "外观已收藏";
         }
         var pet=Pet(S(args,"pet_id"),true);string id=S(pet,"pet_id");
-        int style=action=="reset_appearance"?(Meta["pet_initial_appearances"]?[id]?.GetValue<int>()??NativeAppearance.Default(id)):I(args,"variant",-1);
+        int style=action=="reset_appearance"?InitialAppearance(id):I(args,"variant",-1);
         ValidateStyle(S(pet,"species"),style);
         Meta["pet_initial_appearances"]![id]??=Appearance(pet);Meta["pet_appearances"]![id]=style;
         Note(pet,action=="reset_appearance"?"恢复初始外观":"更换外观："+NativeAppearance.Description(S(pet,"species"),style));WorldRevision++;return "外观已更新";
@@ -56,25 +57,34 @@ public sealed partial class NativeGame
     {
         if(Rules["SPECIES"]?[species]==null||variant<0||variant>=384)throw new InvalidOperationException("请选择有效的动物外观");
     }
-    string BatchCare(string kind)
+    string BatchCare(string kind,string expectedPlan,JsonNode? selection)
     {
-        if(!new[]{"feed","bath","play","collect"}.Contains(kind))throw new InvalidOperationException("不支持的批量照护");
-        int completed=0;var skipped=new List<string>();LastBatchCare.Clear();
-        var ids=Pets.Where(p=>Active(p!)).OrderBy(p=>kind=="feed"?D(p!,"hunger"):kind=="bath"?D(p!,"cleanliness"):0).Select(p=>S(p!,"pet_id")).ToArray();
-        foreach(string id in ids){
-            // 每只动物独立回滚；整批仍由外层Execute在写盘失败时一起回滚。
-            var checkpoint=State.DeepClone();long rev=WorldRevision;
-            try{
-                var pet=Pet(id);if(kind=="feed"&&D(pet,"hunger")>=100||kind=="bath"&&D(pet,"cleanliness")>=100)throw new InvalidOperationException("无需照护");
-                var a=new JsonObject{{"pet_id",id}};
-                if(kind=="feed"){
-                    string? food=Rules["ITEMS"]!.AsObject().Where(p=>p.Key!="腐败物"&&p.Value?["feed"]!=null&&Stock(p.Key)>0).Select(p=>p.Key).FirstOrDefault();
-                    if(food==null)throw new InvalidOperationException("缺少可用食物");a["item"]=food;
-                }
-                Command(kind,a);completed++;LastBatchCare.Add(id);
-            }catch(InvalidOperationException ex){root["snapshot"]=checkpoint;WorldRevision=rev;skipped.Add(id[..Math.Min(6,id.Length)]+"："+ex.Message);}
+        LastBatchCare.Clear();
+        HashSet<string>? selected=null;
+        if(selection!=null){
+            if(selection is not JsonArray ids||expectedPlan.Length==0)
+                throw new InvalidOperationException("请先预览选中的照护名单。");
+            selected=new(StringComparer.Ordinal);
+            foreach(var value in ids){
+                if(value is not JsonValue id||!id.TryGetValue<string>(out var text)||string.IsNullOrWhiteSpace(text))
+                    throw new InvalidOperationException("照护名单包含无效的伙伴。");
+                selected.Add(text);
+            }
+            if(selected.Count==0)throw new InvalidOperationException("请至少选择一位伙伴。");
         }
-        return $"批量完成{completed}只，跳过{skipped.Count}只。"+string.Join("；",skipped.Take(4));
+        var plan=PreviewBatchCare(kind,selected);
+        if(selected!=null&&plan.Rows.Length!=selected.Count)
+            throw new InvalidOperationException("照护名单已有变化，请重新预览。");
+        if(expectedPlan.Length>0&&plan.Token!=expectedPlan)throw new InvalidOperationException("照护名单或物资已有变化，请重新预览。");
+        foreach(var entry in plan.Rows.Where(row=>row.Skip.Length==0)){
+            var args=new JsonObject{{"pet_id",entry.Id}};
+            if(kind=="feed")args["item"]=entry.Item;
+            Command(kind,args);
+            LastBatchCare.Add(entry.Id);
+        }
+        var skipped=plan.Rows.Where(row=>row.Skip.Length>0).ToArray();
+        return $"批量完成{LastBatchCare.Count}只，跳过{skipped.Length}只。"+
+            string.Join("；",skipped.Take(4).Select(row=>$"{row.Name} · {row.Skip}"));
     }
     public double PetAge(JsonNode pet)
     {

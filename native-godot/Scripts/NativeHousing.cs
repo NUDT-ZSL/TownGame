@@ -12,6 +12,7 @@ public sealed partial class NativeGame
     public int ResidentHomeCapacity(JsonNode house)=>IsResidentialHome(house)&&S(house,"status")=="ready"?I(Spec("CATALOG",S(house,"catalog_key")),"population"):0;
     public JsonObject? ResidentHome(JsonNode person)=>Rows("town_buildings").FirstOrDefault(b=>S(b!,"building_id")==S(person,"home_building_id")&&ResidentHomeCapacity(b!)>0)?.AsObject();
     public IEnumerable<JsonNode> HomeMembers(string buildingId)=>People.Where(p=>S(p!,"role")=="居民"&&S(p!,"home_building_id")==buildingId).Select(p=>p!);
+    internal string ResidentHomeZone(JsonNode house)=>Zone(new(I(house,"cx"),I(house,"cy")));
 
     // 保留住房身份；路断只使入口暂时不可达，不会自动把家搬到别处。
     public Cell? HomeRoadEntrance(JsonNode house)
@@ -30,6 +31,22 @@ public sealed partial class NativeGame
         void Join(string a,string b){if(!parent.ContainsKey(b))return;string pa=Find(a),pb=Find(b);if(pa!=pb)parent[string.CompareOrdinal(pa,pb)<0?pb:pa]=string.CompareOrdinal(pa,pb)<0?pa:pb;}
         foreach(var p in residents){string id=S(p,"person_id");Join(id,S(p,"partner_id"));if(ResidentAgeDays(p)<7&&p["parents"] is JsonArray parents)foreach(var q in parents)Join(id,q!.GetValue<string>());}
         return residents.GroupBy(p=>Find(S(p,"person_id"))).Select(g=>g.ToList()).OrderByDescending(g=>g.Count).ThenBy(g=>S(g[0],"person_id"),StringComparer.Ordinal).ToList();
+    }
+
+    internal sealed record ResidentHousingWaitGroup(JsonNode[] Members,JsonNode[] VacantHomes);
+
+    bool IsVacantReachableHome(JsonNode house,int members)=>ResidentHomeCapacity(house)>=members&&
+        HomeRoadEntrance(house)!=null&&!HomeMembers(S(house,"building_id")).Any();
+
+    internal ResidentHousingWaitGroup[] ResidentHousingWaitlist()
+    {
+        var waiting=ResidentFamilyGroups().Where(family=>family.Any(person=>ResidentHome(person)==null||
+            S(person,"housing_status").StartsWith("等待",StringComparison.Ordinal))).ToArray();
+        if(waiting.Length==0)return Array.Empty<ResidentHousingWaitGroup>();
+        var vacant=Rows("town_buildings").OfType<JsonNode>().Where(home=>IsVacantReachableHome(home,1))
+            .OrderBy(ResidentHomeCapacity).ThenBy(home=>D(home,"placed_ts")).ToArray();
+        return waiting.Select(family=>new ResidentHousingWaitGroup(family.ToArray(),
+            vacant.Where(home=>ResidentHomeCapacity(home)>=family.Count).ToArray())).ToArray();
     }
 
     void InitializeResidentHousing()
@@ -75,7 +92,7 @@ public sealed partial class NativeGame
             bool Fits(JsonNode b)=>ResidentHomeCapacity(b)>=family.Count+HomeMembers(S(b,"building_id")).Count(p=>!ids.Contains(S(p,"person_id")));
             // 一旦有家就优先保留；新家庭仅在容量允许时一起迁入其中一人的家。
             var existing=family.Select(ResidentHome).Where(b=>b!=null).Select(b=>b!).DistinctBy(b=>S(b,"building_id")).ToList();
-            var house=existing.FirstOrDefault(Fits)??houses.FirstOrDefault(b=>HomeRoadEntrance(b)!=null&&Fits(b)&&!HomeMembers(S(b,"building_id")).Any());
+            var house=existing.FirstOrDefault(Fits)??houses.FirstOrDefault(b=>IsVacantReachableHome(b,family.Count));
             string household=family.Select(p=>S(p,"household_id")).FirstOrDefault(id=>id!="")??"family-"+S(family[0],"person_id");
             if(house==null){waiting++;foreach(var p in family){p["household_id"]??=household;if(ResidentHome(p)==null){if(S(p,"home_building_id")!="")changed=true;p["home_building_id"]="";}p["housing_status"]="等待可容纳全家的住宅";}continue;}
             string homeId=S(house,"building_id"),zone=Zone(new(I(house,"cx"),I(house,"cy")));if(zone=="")zone="estate";

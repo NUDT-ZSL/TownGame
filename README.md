@@ -1,6 +1,6 @@
 # 慢时光 · 宠物经营小镇
 
-当前开发版本位于 [native-godot](native-godot/README.md)，采用Godot与C#。此前迁移清单中的宠物外观/收藏、批量照护、财务与档案、季节雨雪、居民动作/公共牲畜、宠物自主表现、道路拖拽/多步撤销、地图/地价、旧SQLite导入及Windows便携打包现已接入。新版自带资源和规则，运行、编译、打包均不需要Python；87项规则检查覆盖经营和迁移。双击`native-godot/Start-Native.cmd`，或使用`native-godot/package.ps1`生成独立运行包。旧存档可在“经营管理→存档”只读导入。详细对照见[迁移说明](native-godot/MIGRATION.md)。
+当前开发版本位于 [native-godot](native-godot/README.md)，采用Godot与C#。此前迁移清单中的宠物外观/收藏、批量照护、财务与档案、季节雨雪、居民动作/公共牲畜、宠物自主表现、道路拖拽/多步撤销、地图/地价、旧SQLite导入及Windows便携打包现已接入。新版自带资源和规则，运行、编译、打包均不需要Python；87项规则检查覆盖经营和迁移。首次克隆后先运行`native-godot/setup.ps1`下载便携工具链，再双击`native-godot/Start-Native.cmd`；也可使用`native-godot/package.ps1`生成独立运行包。旧存档可在“经营管理→存档”只读导入。详细对照见[迁移说明](native-godot/MIGRATION.md)。
 
 以下内容为保留的Python历史版本说明。旧源码可归档；请保留个人manor*.db及备份。源码启动所用的根目录.tools是Godot/.NET工具链，不属于旧Python源码。
 

@@ -7,8 +7,6 @@ using System.Text.Json.Nodes;
 public partial class Main
 {
     Node3D? _districtWalkways;
-    double _districtRefresh;
-    readonly Dictionary<string,Label3D> _workerLabels=new();
     void MigrateSceneCoordinates()
     {
         if(NativeGame.I(Data.Meta,"native_spatial_version")>=2)return;
@@ -47,24 +45,48 @@ public partial class Main
         if(actor.IsCar)return false;
         var person=Data.People.FirstOrDefault(p=>NativeGame.S(p!,"person_id")==actor.Ident);if(person==null)return false;
         bool commuter=NativeGame.S(person,"role")=="通勤者";
+        bool tourist=NativeGame.S(person,"role")=="游客"&&NativeGame.S(person,"status")!="离镇";
         if(Game.IsResidentNight&&!commuter&&NativeGame.S(person,"role")=="居民")return false;
         if(Data.Roads.Count==0)return false;
         actor.ReturningHome=false;actor.Path.Clear();actor.Index=0;actor.Wait=6;
         string zone=Game.IsResidentNight&&commuter?"station":NativeGame.S(person,"destination","estate");
+        if(tourist&&Game.TouristDestinationReason(zone) is {Length:>0} blocked){
+            actor.ResidentialActivity=blocked;
+            Game.ReportTouristBlock(person,zone,blocked);
+            return true;
+        }
         var job=Game.Jobs.FirstOrDefault(j=>NativeGame.S(j!,"worker")==actor.Ident);
         if(job!=null&&!Game.IsResidentNight)zone=NativeGame.S(job,"zone",zone);
         var access=WorkAccess(person,zone);
         Vector2I goal=access?.Entrance is NativeGame.Cell e?new(e.X,e.Y):Data.Portals.GetValueOrDefault(zone,Data.Portals["estate"]);
         var target=access==null?Data.PavementPoint(goal)+Vector3.Right*WorkOffset(person):new Vector3((float)access.DoorX*WorldData.GridSize,0,(float)access.DoorY*WorldData.GridSize)+Vector3.Right*WorkOffset(person);
+        string festival=NativeGame.S(person,"native_festival");
+        if(job==null&&festival.Length>0&&FestivalSite(zone) is Vector3 eventSite){
+            target=FestivalVisitPoint(person,eventSite);
+            goal=Data.Roads.Keys.Where(cell=>Game.ConnectedRoads.Contains(new NativeGame.Cell(cell.X,cell.Y)))
+                .DefaultIfEmpty(Data.Portals[zone]).MinBy(cell=>WorldData.Cell(cell).DistanceSquaredTo(target));
+            access=null;
+        }
         if(actor.Position.DistanceTo(target)<.65f){
             actor.WorkSiteId=access?.Id??"";
-            actor.ResidentialActivity=Game.IsResidentNight&&commuter?"已下班离镇":zone switch{"fields"=>"照料农田","ranch"=>"照看牲畜","market"=>"营业 / 采购","industry"=>"生产 / 装卸","city"=>"上班","park"=>"休憩 / 养护",_=>"日常活动"};
+            if(tourist){
+                Game.ReportTouristArrival(person,zone);
+                actor.ResidentialActivity="正在游览 · "+AutonomyZoneName(zone);
+                return true;
+            }
+            actor.ResidentialActivity=festival=="market"?(NativeGame.S(person,"profession")=="商人"?"周末集市摆摊":"逛周末集市"):
+                festival=="showcase"?"参观伙伴展示日":Game.IsResidentNight&&commuter?"已下班离镇":zone switch{"fields"=>"照料农田","ranch"=>"照看牲畜","market"=>"营业 / 采购","industry"=>"生产 / 装卸","city"=>"上班","park"=>"休憩 / 养护",_=>"日常活动"};
             if(Game.IsResidentNight&&commuter){actor.Visual.Hide();actor.CollisionLayer=0;actor.CollisionMask=0;}
             return true;
         }
         actor.Visual.Show();actor.CollisionLayer=2;actor.CollisionMask=7;
         var path=BeginPublicRoute(actor,out var start);var streetPath=Data.PedestrianRoute(path.Count>0?path[^1]:actor.Position,start,goal,target);
-        if(streetPath.Count==0){actor.ResidentialActivity="等待道路接通";return true;}
+        if(streetPath.Count==0){
+            actor.ResidentialActivity="等待道路接通";
+            if(tourist)Game.ReportTouristBlock(person,zone,"景点道路未连通");
+            return true;
+        }
+        if(tourist)Game.ReportTouristPathOpened(person);
         path.AddRange(streetPath);
         // Enter/leave a building by its public front path, then use the pavement.
         if(access!=null&&actor.WorkSiteId==access.Id&&actor.Position.DistanceTo(target)<2)path.Clear();
@@ -86,17 +108,6 @@ public partial class Main
             var start=from+direction.Normalized()*(i==1?Math.Min(length,WorldData.GridSize*.45f):0);length=start.DistanceTo(to);
             if(length>.1f)_districtWalkways.AddChild(new MeshInstance3D{Mesh=new BoxMesh{Size=new(1.5f,.05f,length)},MaterialOverride=material,Position=(start+to)/2+Vector3.Up*.04f,Rotation=new(0,Mathf.Atan2(direction.X,direction.Z),0)});
             }
-        }
-    }
-    void UpdateDistrictActivity(double delta)
-    {
-        _districtRefresh-=delta;if(_districtRefresh>0)return;_districtRefresh=.5;
-        foreach(var actor in Agents.Where(a=>!a.IsCar)){
-            var person=Data.People.FirstOrDefault(p=>NativeGame.S(p!,"person_id")==actor.Ident);if(person==null||NativeGame.S(person,"role")!="通勤者")continue;
-            if(!_workerLabels.TryGetValue(actor.Ident,out var label)){
-                label=new Label3D{Font=new SystemFont{FontNames=new[]{"Microsoft YaHei"}},FontSize=24,PixelSize=.012f,Position=Vector3.Up*2.3f,Billboard=BaseMaterial3D.BillboardModeEnum.Enabled,Modulate=new Color("fff0ca")};actor.AddChild(label);_workerLabels[actor.Ident]=label;
-            }
-            label.Text=NativeGame.S(person,"name")+" · "+NativeGame.S(person,"profession");label.Visible=actor.Visual.Visible;
         }
     }
 }

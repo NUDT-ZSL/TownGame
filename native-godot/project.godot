@@ -9,13 +9,17 @@ config/features=PackedStringArray("4.7", "C#", "GL Compatibility")
 project/assembly_name="TownNative"
 
 [display]
-window/size/viewport_width=1440
-window/size/viewport_height=900
+window/size/viewport_width=1024
+window/size/viewport_height=640
+window/size/window_width_override=1440
+window/size/window_height_override=900
 window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
 
 [rendering]
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
+anti_aliasing/quality/msaa_3d=2
 textures/default_filters/use_nearest_mipmap_filter=false
 
 [physics]

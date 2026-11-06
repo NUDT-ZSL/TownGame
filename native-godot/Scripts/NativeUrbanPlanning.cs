@@ -83,22 +83,58 @@ public sealed partial class NativeGame
         get {var access=UrbanAccessPoints();int linked=access.Count(a=>a.Entrance!=null),zones=root["portals"]!.AsObject().Count(p=>Connected().Contains(Portal(p.Key)));return $"道路连通：街区 {zones}/{root["portals"]!.AsObject().Count}，建筑入口 {linked}/{access.Count}";}
     }
     bool UrbanRoadAllowed(Cell c)=>Allowed(c)&&!UrbanObstacles().Contains(c);
-    List<Cell>? UrbanRoadPlan(IEnumerable<Cell> targets)
+    List<Cell>? UrbanRoadPlan(IEnumerable<Cell> targets,bool includeMissingGate=false)
     {
         var connected=Connected();var roads=RoadCells();
+        var gate=Portal("estate");
+        if(includeMissingGate&&connected.Count==0&&UrbanRoadAllowed(gate))connected=new(){gate};
         var queue=new PriorityQueue<Cell,int>();var dist=new Dictionary<Cell,int>();var parents=new Dictionary<Cell,Cell?>();
         foreach(var c in targets)if(UrbanRoadAllowed(c)){
-            if(connected.Contains(c))return new();dist[c]=0;parents[c]=null;queue.Enqueue(c,0);
+            if(connected.Contains(c))return roads.Contains(c)?new():new(){c};dist[c]=0;parents[c]=null;queue.Enqueue(c,0);
         }
         Cell? goal=null;
         while(queue.TryDequeue(out var c,out int priority)){
             if(priority!=dist[c])continue;if(connected.Contains(c)){goal=c;break;}
-            foreach(var d in Directions){var n=new Cell(c.X+d.X,c.Y+d.Y);if(!UrbanRoadAllowed(n))continue;
+            foreach(var d in Directions){var n=new Cell(c.X+d.X,c.Y+d.Y);if(!UrbanRoadAllowed(n)&&!(includeMissingGate&&roads.Contains(n)))continue;
                 int value=priority+(roads.Contains(n)?1:10);if(value>=dist.GetValueOrDefault(n,int.MaxValue))continue;dist[n]=value;parents[n]=c;queue.Enqueue(n,value);
             }
         }
         if(goal==null)return null;var path=new List<Cell>();
         while(goal!=null){if(!roads.Contains(goal.Value))path.Add(goal.Value);goal=parents[goal.Value];}return path;
+    }
+
+    internal sealed record ReconnectPreview(Cell[] Cells,int Cost,string Reason,string[] Districts,string[] Buildings);
+
+    internal ReconnectPreview PreviewReconnect(Cell target,string style)
+    {
+        ReconnectPreview Block(string reason)=>new(Array.Empty<Cell>(),0,reason,Array.Empty<string>(),Array.Empty<string>());
+        var roads=RoadCells();
+        var before=Connected();
+        if(!roads.Contains(target))return Block("此处已没有道路。");
+        if(before.Contains(target))return Block("这段路已连通庄园。");
+        // A legacy road may already cross a landmark apron. Search from all
+        // legal cells in that component and leave existing road tiles intact.
+        var component=new HashSet<Cell>{target};
+        var pending=new Queue<Cell>();
+        pending.Enqueue(target);
+        while(pending.TryDequeue(out var cell))
+            foreach(var d in Directions){
+                var next=new Cell(cell.X+d.X,cell.Y+d.Y);
+                if(roads.Contains(next)&&component.Add(next))pending.Enqueue(next);
+            }
+        var plan=UrbanRoadPlan(component.OrderBy(c=>c.Y).ThenBy(c=>c.X),includeMissingGate:true);
+        if(plan is not {Count:>0})return Block("附近没有可铺设的接线路径。");
+        var after=ReachableRoads(roads.Concat(plan).ToHashSet());
+        if(!after.Contains(target))return Block("没有找到可接通这段路的路线。");
+        var quote=RoadQuote(plan,style);
+        var districts=root["zones"]!.AsObject().Where(zone=>ZoneLevel(zone.Key)>0&&after.Contains(Portal(zone.Key))&&!before.Contains(Portal(zone.Key)))
+            .Select(zone=>S(zone.Value!,"name")).ToArray();
+        var buildings=Rows("town_buildings").OfType<JsonNode>()
+            .Where(building=>Frontage(building).Any(after.Contains)&&!Frontage(building).Any(before.Contains))
+            .Select(building=>S(Spec("CATALOG",S(building,"catalog_key")),"name"))
+            .Concat(UrbanLandmarks().Where(landmark=>LandmarkEntrances(landmark).Any(after.Contains)&&!LandmarkEntrances(landmark).Any(before.Contains))
+                .Select(landmark=>S(root["zones"]![landmark.Zone]!,"name")+"地标")).ToArray();
+        return new(plan.ToArray(),quote.Cost,quote.Reason,districts,buildings);
     }
     void InitializeUrbanPlanning()
     {
@@ -134,23 +170,29 @@ public sealed partial class NativeGame
             }
         }
     }
+    internal string ResidentWorkZone(JsonNode person)
+    {
+        string preferred=S(person,"work_zone");
+        if(preferred=="")preferred=S(person,"profession") switch{"农民"=>"fields","牧民"=>"ranch","商人"=>"market","工匠"=>"industry","建筑工"=>"city","园丁"=>"park","孩童"=>"park",_=>"market"};
+        return preferred;
+    }
     public string DistrictDestination(JsonNode person)
     {
         if(IsResidentNight)return S(person,"role")=="通勤者"?"station":S(person,"home_zone","estate");
-        string preferred=S(person,"work_zone");
-        if(preferred=="")preferred=S(person,"profession") switch{"农民"=>"fields","牧民"=>"ranch","商人"=>"market","工匠"=>"industry","建筑工"=>"city","园丁"=>"park","孩童"=>"park",_=>"market"};
+        string preferred=ResidentWorkZone(person);
         if(Now%Day>=17*Hour&&S(person,"role")=="居民")preferred=S(person,"profession")=="农民"?"market":"park";
         return Effective(preferred)?preferred:"estate";
     }
     public void AssignDaytimeDestinations()
     {
+        var festival=CurrentFestival;
+        var attendees=FestivalGuestIds(festival);
         foreach(var p in People.Where(p=>S(p!,"role") is "居民" or "通勤者")){
-            p!["destination"]=DistrictDestination(p!);
+            bool attending=attendees.Contains(S(p!,"person_id"));
+            p!["destination"]=attending?festival!.Zone:DistrictDestination(p!);
+            if(attending)p["native_festival"]=festival!.Key;
+            else p.AsObject().Remove("native_festival");
             if(S(p,"role")=="通勤者")p["status"]=IsResidentNight?"下班离镇":"在岗";
-        }
-        foreach(var p in People.Where(p=>S(p!,"role")=="游客"&&S(p!,"status")!="离镇")){
-            string[] choices={"market","park","city","ranch"};uint hash=2166136261;foreach(char c in S(p!,"person_id")){hash^=c;hash*=16777619;}
-            string zone=choices[hash%choices.Length];p!["destination"]=Effective(zone)?zone:"estate";
         }
     }
 }

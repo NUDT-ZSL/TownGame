@@ -27,13 +27,14 @@ public partial class Main
     {
         string key=$"{style}:{mask}";if(_boulevardMeshes.TryGetValue(key,out var cached))return cached;
         var m=new StreetMeshBuilder();
-        Color asphalt=new(style=="stone"?"929a92":style=="brick"?"9b8775":"65736e"),paving=new("bdc0af"),kerb=new("dde0cc"),white=new("efedcf");
-        m.Box(new(0,.015f,0),new(8,.03f,8),paving);
-        m.Box(new(0,.034f,0),new(5.6f,.018f,5.6f),asphalt);
+        Color asphalt=new(style=="stone"?"929a92":style=="garden"?"b29b7d":"65736e"),paving=new("bdc0af"),kerb=new("dde0cc"),white=new("efedcf");
+        float roadSurface=style is "stone" or "garden"?3:0;
+        m.Box(new(0,.015f,0),new(8,.03f,8),paving,surface:3);
+        m.Box(new(0,.034f,0),new(5.6f,.018f,5.6f),asphalt,surface:roadSurface);
         for(int i=0;i<4;i++)if((mask&(1<<i))!=0){
             Vector3 outwards=new(StreetDirections[i].X,0,StreetDirections[i].Y);
             bool ns=i%2==0;
-            m.Box(outwards*3.4f+Vector3.Up*.034f,ns?new(5.6f,.018f,1.2f):new(1.2f,.018f,5.6f),asphalt);
+            m.Box(outwards*3.4f+Vector3.Up*.034f,ns?new(5.6f,.018f,1.2f):new(1.2f,.018f,5.6f),asphalt,surface:roadSurface);
         }
         // Raised kerbs mark the outer lane edge, leaving a full 1.2 m pavement.
         for(int i=0;i<4;i++)if((mask&(1<<i))==0){
@@ -157,14 +158,15 @@ public partial class Main
 internal sealed class StreetMeshBuilder
 {
     readonly List<Vector3> _vertices=new(),_normals=new();readonly List<Color> _colors=new();
-    void Quad(Vector3 a,Vector3 b,Vector3 c,Vector3 d,Vector3 normal,Color color,Transform3D transform)
+    readonly List<Vector2> _uv=new();
+    void Quad(Vector3 a,Vector3 b,Vector3 c,Vector3 d,Vector3 normal,Color color,Transform3D transform,float surface=0)
     {
-        foreach(var vertex in new[]{a,b,c,a,c,d}){_vertices.Add(transform*vertex);_normals.Add(transform.Basis*normal);_colors.Add(color);}
+        foreach(var vertex in new[]{a,b,c,a,c,d}){_vertices.Add(transform*vertex);_normals.Add(transform.Basis*normal);_colors.Add(color);_uv.Add(new(0,surface));}
     }
-    public void Box(Vector3 position,Vector3 size,Color color,Transform3D? transformed=null)
+    public void Box(Vector3 position,Vector3 size,Color color,Transform3D? transformed=null,float surface=0)
     {
         var t=transformed??Transform3D.Identity;var min=position-size*.5f;var max=position+size*.5f;
-        Quad(new(min.X,max.Y,min.Z),new(max.X,max.Y,min.Z),new(max.X,max.Y,max.Z),new(min.X,max.Y,max.Z),Vector3.Up,color,t);
+        Quad(new(min.X,max.Y,min.Z),new(max.X,max.Y,min.Z),new(max.X,max.Y,max.Z),new(min.X,max.Y,max.Z),Vector3.Up,color,t,surface);
         Quad(new(min.X,min.Y,max.Z),new(max.X,min.Y,max.Z),new(max.X,min.Y,min.Z),new(min.X,min.Y,min.Z),Vector3.Down,color,t);
         Quad(new(min.X,min.Y,max.Z),new(min.X,max.Y,max.Z),new(max.X,max.Y,max.Z),new(max.X,min.Y,max.Z),Vector3.Back,color,t);
         Quad(new(max.X,min.Y,min.Z),new(max.X,max.Y,min.Z),new(min.X,max.Y,min.Z),new(min.X,min.Y,min.Z),Vector3.Forward,color,t);
@@ -179,7 +181,7 @@ internal sealed class StreetMeshBuilder
     public ArrayMesh Commit(Material material)
     {
         var arrays=new Godot.Collections.Array();arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex]=_vertices.ToArray();arrays[(int)Mesh.ArrayType.Normal]=_normals.ToArray();arrays[(int)Mesh.ArrayType.Color]=_colors.ToArray();arrays[(int)Mesh.ArrayType.TexUV]=new Vector2[_vertices.Count];
+        arrays[(int)Mesh.ArrayType.Vertex]=_vertices.ToArray();arrays[(int)Mesh.ArrayType.Normal]=_normals.ToArray();arrays[(int)Mesh.ArrayType.Color]=_colors.ToArray();arrays[(int)Mesh.ArrayType.TexUV]=_uv.ToArray();
         var mesh=new ArrayMesh();mesh.AddSurfaceFromArrays(Mesh.PrimitiveType.Triangles,arrays);mesh.SurfaceSetMaterial(0,material);return mesh;
     }
 }

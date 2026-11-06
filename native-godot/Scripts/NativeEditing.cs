@@ -80,30 +80,133 @@ public sealed partial class NativeGame
         foreach(var c in changes){var current=Rows("roads").FirstOrDefault(r=>I(r!,"cx")==I(c!,"cx")&&I(r!,"cy")==I(c!,"cy"));if(current!=null)Rows("roads").Remove(current);if(c!["before"] is JsonNode before)Rows("roads").Add(before.DeepClone());}
         history.Remove(undo);Meta["native_road_undo"]=null;Meta["road_revision"]=I(Meta,"road_revision")+1;WorldRevision++;return "已撤销整笔道路，费用已恢复";
     }
+    public (int Refund,string Reason) TownDemolitionQuote(JsonNode building)
+    {
+        if(HomeMembers(S(building,"building_id")).Any())return (0,"这是居民的固定住宅，不能拆除有人居住的房屋");
+        if(B(building,"starter_home"))return (0,"初始安置住宅不可拆除");
+        int refund=(int)(D(Spec("CATALOG",S(building,"catalog_key")),"cost")*D(Rules["BUILDING_REFUND"]!,S(building,"status")));
+        return (refund,"");
+    }
+
+    public (int Refund,string Reason) ManorDemolitionQuote(JsonNode building)
+    {
+        string kind=S(building,"kind");
+        if(IncubatingAtHome(I(building,"building_id"))>0)return (0,"有宠物蛋已预留这处育幼床位");
+        if(kind==""||Pets.Any(p=>Active(p!)&&I(p!,"building_id")==I(building,"building_id")))return (0,"请先迁走全部伙伴");
+        int capacity=Storage-(kind=="仓库"?I(building,"level")*I(Rules,"STORAGE_PER_LEVEL"):0);
+        if(Rows("inventory").Sum(i=>I(i!,"quantity"))>capacity)return (0,"拆除后仓库容量不足");
+        return ((int)(D(Spec("BUILDINGS",kind),"cost")*Rule("DEMOLISH_REFUND")),"");
+    }
+
     string EditCommand(string action,JsonObject a)
     {
         switch(action){
             case "edit_road":return EditRoad(a,false);
             case "remove_road":return EditRoad(a,true);
             case "undo_road":return UndoRoadStroke();
-            case "remove_town":{var b=Rows("town_buildings").FirstOrDefault(b=>S(b!,"building_id")==S(a,"building_id"))??throw new InvalidOperationException("建筑不存在");if(HomeMembers(S(b,"building_id")).Any())throw new InvalidOperationException("这是居民的固定住宅，不能拆除有人居住的房屋");if(B(b,"starter_home"))throw new InvalidOperationException("初始安置住宅不提供拆除退款");int refund=(int)(D(Spec("CATALOG",S(b,"catalog_key")),"cost")*D(Rules["BUILDING_REFUND"]!,S(b,"status")));Rows("town_buildings").Remove(b);Meta["coins"]=I(Meta,"coins")+refund;WorldRevision++;return $"建筑已拆除，返还{refund}金币";}
-            case "demolish_manor":{var b=Rows("buildings").First(b=>I(b!,"building_id")==I(a,"building_id"))!;if(S(b,"kind")==""||Pets.Any(p=>Active(p!)&&I(p!,"building_id")==I(b,"building_id")))throw new InvalidOperationException("请先迁走全部伙伴");int capacity=Storage-(S(b,"kind")=="仓库"?I(b,"level")*I(Rules,"STORAGE_PER_LEVEL"):0);if(Rows("inventory").Sum(i=>I(i!,"quantity"))>capacity)throw new InvalidOperationException("拆除后仓库容量不足");Meta["coins"]=I(Meta,"coins")+(int)(D(Spec("BUILDINGS",S(b,"kind")),"cost")*Rule("DEMOLISH_REFUND"));b["kind"]="";b["level"]=0;WorldRevision++;return "建筑已拆除";}
+            case "remove_town":
+            {
+                var building=Rows("town_buildings").FirstOrDefault(b=>S(b!,"building_id")==S(a,"building_id"))??throw new InvalidOperationException("建筑不存在");
+                var (refund,reason)=TownDemolitionQuote(building);
+                if(reason!="")throw new InvalidOperationException(reason);
+                Rows("town_buildings").Remove(building);
+                ClearConstructionNotice(S(building,"building_id"));
+                Meta["coins"]=I(Meta,"coins")+refund;
+                WorldRevision++;
+                return $"建筑已拆除，返还{refund}金币";
+            }
+            case "demolish_manor":
+            {
+                var building=Rows("buildings").First(b=>I(b!,"building_id")==I(a,"building_id"))!;
+                var (refund,reason)=ManorDemolitionQuote(building);
+                if(reason!="")throw new InvalidOperationException(reason);
+                Meta["coins"]=I(Meta,"coins")+refund;
+                building["kind"]="";
+                building["level"]=0;
+                building.AsObject().Remove("paint_wall");
+                building.AsObject().Remove("paint_roof");
+                WorldRevision++;
+                return "建筑已拆除";
+            }
             case "decoration":return EditDecoration(a);
+            case "paint_building":return PaintBuilding(a);
             default:throw new InvalidOperationException("不支持的操作："+action);
         }
     }
+    internal string DecorationName(string kind)=>Rules["DECORATIONS"]?[kind]?[0]?.GetValue<string>()??kind;
+    internal int DecorationCatalogPrice(string kind)=>Rules["DECORATIONS"]?[kind]?[1]?.GetValue<int>()??0;
+    internal int DecorationPlacementPrice(string kind)=>FestivalDecorationCredits(kind)>0?0:DecorationCatalogPrice(kind);
+    internal JsonNode? FindDecoration(string id)=>(Meta["decorations"] as JsonArray)?.OfType<JsonObject>().FirstOrDefault(row=>S(row,"id")==id);
+    internal JsonNode? DecorationAt(Cell cell)=>(Meta["decorations"] as JsonArray)?.OfType<JsonObject>()
+        .FirstOrDefault(row=>I(row,"cx")==cell.X&&I(row,"cy")==cell.Y);
+
+    internal (int Paid,int Refund,bool Reward) DecorationRemovalQuote(JsonNode decoration)
+    {
+        int listPrice=DecorationCatalogPrice(S(decoration,"kind"));
+        int paid=I(decoration,"paid",listPrice);
+        bool reward=decoration["festival_reward"]==null?paid==0&&listPrice>0:B(decoration,"festival_reward");
+        return (paid,paid/2,reward);
+    }
+
+    public (int Cost,string Reason) DecorationQuote(string kind,int x,int y,int orientation,string? movingId=null)
+    {
+        var rows=Meta["decorations"]?.AsArray();
+        int cost=0;
+        if(movingId==null){
+            var spec=Rules["DECORATIONS"]?[kind];
+            if(spec==null)return (0,"未知装饰");
+            cost=DecorationPlacementPrice(kind);
+        }else if(rows?.Any(d=>S(d!,"id")==movingId)!=true){
+            return (0,"装饰不存在");
+        }
+
+        if(orientation<0||orientation>3)return (cost,"无效朝向");
+        if(x<0||y<0||x>=125||y>=80)return (cost,"超出地图");
+        var cell=new Cell(x,y);
+        if(RoadCells().Contains(cell))return (cost,"这里已有道路");
+        if(Rows("town_buildings").Any(b=>Footprint(b!).Contains(cell)))return (cost,"这里被建筑占用");
+        if(rows?.Any(d=>S(d!,"id")!=movingId&&I(d!,"cx")==x&&I(d!,"cy")==y)==true)
+            return (cost,"这里已有装饰");
+        string land=root["terrain"]![y]![x]!.GetValue<string>();
+        if(land!="grass"&&land!="zone")return (cost,"这里是保护地形");
+        string zone=Zone(cell);
+        if(zone!=""&&ZoneLevel(zone)==0)return (cost,"街区尚未开放");
+        return (cost,cost>I(Meta,"coins")?"金币不足":"");
+    }
+
     string EditDecoration(JsonObject a)
     {
         Meta["decorations"]??=new JsonArray();Meta["decoration_undo"]??=new JsonArray();var rows=Meta["decorations"]!.AsArray();var history=Meta["decoration_undo"]!.AsArray();string op=S(a,"operation");
         if(op=="undo"){
-            var undo=history.LastOrDefault()??throw new InvalidOperationException("没有可撤销装饰操作");var before=undo["before"]!.AsArray();var occupied=Rows("town_buildings").SelectMany(b=>Footprint(b!)).Concat(RoadCells()).ToHashSet();if(before.Any(d=>occupied.Contains(new(I(d!,"cx"),I(d!,"cy")))))throw new InvalidOperationException("位置已被道路或建筑占用");int delta=I(undo,"delta");if(delta>0)Pay(delta);else Meta["coins"]=I(Meta,"coins")-delta;Meta["decorations"]=before.DeepClone();history.Remove(undo);WorldRevision++;return "装饰已恢复";}
-        var original=rows.DeepClone();int coins=I(Meta,"coins");var selected=rows.FirstOrDefault(d=>S(d!,"id")==S(a,"id"));
-        if(op=="remove"){if(selected==null)throw new InvalidOperationException("装饰不存在");Meta["coins"]=I(Meta,"coins")+Rules["DECORATIONS"]![S(selected,"kind")]![1]!.GetValue<int>()/2;rows.Remove(selected);}
-        else{
-            int x=I(a,"cx"),y=I(a,"cy"),orientation=I(a,"orientation");var cell=new Cell(x,y);if(orientation<0||orientation>3||x<0||y<0||x>=125||y>=80||RoadCells().Contains(cell)||Rows("town_buildings").Any(b=>Footprint(b!).Contains(cell))||rows.Any(d=>d!=selected&&I(d!,"cx")==x&&I(d!,"cy")==y))throw new InvalidOperationException("位置或朝向不可用");string land=root["terrain"]![y]![x]!.GetValue<string>(),zone=Zone(cell);if(land!="grass"&&land!="zone"||zone!=""&&ZoneLevel(zone)==0)throw new InvalidOperationException("保护地形或街区未开放");
-            if(op=="place"){string kind=S(a,"kind");var spec=Rules["DECORATIONS"]![kind]??throw new InvalidOperationException("未知装饰");Pay(spec[1]!.GetValue<int>());selected=new JsonObject{{"id",NextId("decoration")},{"kind",kind}};rows.Add(selected);}else if(op!="move"||selected==null)throw new InvalidOperationException("装饰操作无效");
-            selected!["cx"]=x;selected["cy"]=y;selected["orientation"]=orientation;ClearGround(new[]{cell});
+            var undo=history.LastOrDefault()??throw new InvalidOperationException("没有可撤销装饰操作");var before=undo["before"]!.AsArray();var occupied=Rows("town_buildings").SelectMany(b=>Footprint(b!)).Concat(RoadCells()).ToHashSet();if(before.Any(d=>occupied.Contains(new(I(d!,"cx"),I(d!,"cy")))))throw new InvalidOperationException("位置已被道路或建筑占用");int delta=I(undo,"delta");if(delta>0)Pay(delta);else Meta["coins"]=I(Meta,"coins")-delta;Meta["decorations"]=before.DeepClone();
+            if(S(undo,"festival_credit") is { Length:>0 } credit)ChangeFestivalDecorationCredits(credit,1);
+            history.Remove(undo);WorldRevision++;return "装饰已恢复";}
+        var original=rows.DeepClone();int coins=I(Meta,"coins");string usedCredit="";
+        var selected=FindDecoration(S(a,"id"));
+        if(op=="remove"){
+            if(selected==null)throw new InvalidOperationException("装饰不存在");
+            Meta["coins"]=I(Meta,"coins")+DecorationRemovalQuote(selected).Refund;
+            rows.Remove(selected);
         }
-        history.Add(new JsonObject{{"before",original},{"delta",I(Meta,"coins")-coins}});while(history.Count>20)history.RemoveAt(0);WorldRevision++;return "装饰已更新";
+        else{
+            if(op is not ("place" or "move"))throw new InvalidOperationException("装饰操作无效");
+            int x=I(a,"cx"),y=I(a,"cy"),orientation=I(a,"orientation");
+            string kind=S(a,"kind");
+            var quote=DecorationQuote(kind,x,y,orientation,op=="move"?S(a,"id"):null);
+            if(quote.Reason!="")throw new InvalidOperationException(quote.Reason);
+            if(op=="place"){
+                Pay(quote.Cost);
+                if(FestivalDecorationCredits(kind)>0){ChangeFestivalDecorationCredits(kind,-1);usedCredit=kind;}
+                selected=new JsonObject{{"id",NextId("decoration")},{"kind",kind},{"paid",quote.Cost},{"festival_reward",usedCredit.Length>0}};
+                rows.Add(selected);
+            }
+            selected!["cx"]=x;
+            selected["cy"]=y;
+            selected["orientation"]=orientation;
+            ClearGround(new[]{new Cell(x,y)});
+        }
+        var edit=new JsonObject{{"before",original},{"delta",I(Meta,"coins")-coins}};
+        if(usedCredit.Length>0)edit["festival_credit"]=usedCredit;
+        history.Add(edit);while(history.Count>20)history.RemoveAt(0);WorldRevision++;return "装饰已更新";
     }
 }

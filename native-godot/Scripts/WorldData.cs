@@ -2,6 +2,8 @@ using Godot;
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.IO;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 
 public sealed class WorldData
@@ -14,6 +16,14 @@ public sealed class WorldData
     public JsonObject Meta => Snapshot["meta"]!.AsObject();
     public JsonArray People => Snapshot["people"]!.AsArray();
     public JsonArray Pets => Snapshot["pets"]!.AsArray();
+    readonly Dictionary<string,JsonNode> _petsById=new();
+    const int RoadDestinationCacheLimit=48;
+    readonly Dictionary<Vector2I,Dictionary<Vector2I,int>> _routeDistances=new();
+    readonly Queue<Vector2I> _routeCacheOrder=new();
+    internal int CachedRoadDestinations=>_routeDistances.Count;
+    static readonly Vector2I[] RoadDirections={Vector2I.Up,Vector2I.Right,Vector2I.Down,Vector2I.Left};
+    JsonArray? _indexedPets;
+    int _indexedPetCount;
     public readonly Dictionary<Vector2I,JsonObject> Roads = new();
     public readonly Dictionary<string,Vector2I> Portals = new();
     public WorldData(JsonObject root)
@@ -24,10 +34,24 @@ public sealed class WorldData
     }
     public void Reindex()
     {
+        var roads=Snapshot["roads"]!.AsArray();
+        bool changed=Roads.Count!=roads.Count||roads.OfType<JsonNode>().Any(row=>!Roads.ContainsKey(new(I(row,"cx"),I(row,"cy"))));
+        if(changed){_routeDistances.Clear();_routeCacheOrder.Clear();}
         Roads.Clear();
-        foreach(var node in Snapshot["roads"]!.AsArray()) {
+        foreach(var node in roads) {
             var r=node!.AsObject();Roads[new(I(r,"cx"),I(r,"cy"))]=r;
         }
+    }
+    public JsonNode? FindPet(string id)
+    {
+        var pets=Pets;
+        if(!ReferenceEquals(_indexedPets,pets)||_indexedPetCount!=pets.Count){
+            _petsById.Clear();
+            foreach(var pet in pets.OfType<JsonNode>())_petsById[S(pet,"pet_id")]=pet;
+            _indexedPets=pets;
+            _indexedPetCount=pets.Count;
+        }
+        return _petsById.GetValueOrDefault(id);
     }
     public static int I(JsonNode node,string key,int fallback=0) => NativeGame.I(node,key,fallback);
     public static double D(JsonNode node,string key,double fallback=0) => NativeGame.D(node,key,fallback);
@@ -42,15 +66,36 @@ public sealed class WorldData
     }
     public IEnumerable<Vector2I> Neighbors(Vector2I c)
     {
-        foreach(var d in new[]{Vector2I.Up,Vector2I.Right,Vector2I.Down,Vector2I.Left})if(Roads.ContainsKey(c+d))yield return c+d;
+        foreach(var d in RoadDirections)if(Roads.ContainsKey(c+d))yield return c+d;
+    }
+    List<Vector2I> RouteCells(Vector2I start,Vector2I end)
+    {
+        if(!Roads.ContainsKey(start)||!Roads.ContainsKey(end))return new();
+        if(!_routeDistances.TryGetValue(end,out var distances)){
+            distances=new(){{end,0}};
+            var queue=new Queue<Vector2I>();
+            queue.Enqueue(end);
+            while(queue.TryDequeue(out var cell)){
+                int length=distances[cell]+1;
+                foreach(var next in Neighbors(cell))
+                    if(distances.TryAdd(next,length))queue.Enqueue(next);
+            }
+            if(_routeCacheOrder.Count>=RoadDestinationCacheLimit)_routeDistances.Remove(_routeCacheOrder.Dequeue());
+            _routeDistances[end]=distances;
+            _routeCacheOrder.Enqueue(end);
+        }
+        if(!distances.TryGetValue(start,out int remaining))return new();
+        var cells=new List<Vector2I>(remaining+1){start};
+        while(remaining>0){
+            var next=Neighbors(cells[^1]).First(cell=>distances.TryGetValue(cell,out int distance)&&distance==remaining-1);
+            cells.Add(next);
+            remaining--;
+        }
+        return cells;
     }
     public List<Vector3> Route(Vector2I start,Vector2I end,float offset)
     {
-        if(!Roads.ContainsKey(start)||!Roads.ContainsKey(end))return new();
-        var parents=new Dictionary<Vector2I,Vector2I>{{start,start}};var queue=new Queue<Vector2I>();queue.Enqueue(start);
-        while(queue.Count>0){var c=queue.Dequeue();if(c==end)break;foreach(var n in Neighbors(c))if(parents.TryAdd(n,c))queue.Enqueue(n);}
-        if(!parents.ContainsKey(end))return new();
-        var cells=new List<Vector2I>();for(var c=end;;c=parents[c]){cells.Add(c);if(c==start)break;}cells.Reverse();
+        var cells=RouteCells(start,end);
         var points=new List<Vector3>();
         for(int i=0;i<cells.Count;i++) {
             var incoming=i>0?cells[i]-cells[i-1]:i+1<cells.Count?cells[i+1]-cells[i]:Vector2I.Down;
@@ -71,7 +116,7 @@ public sealed class WorldData
     }
     public List<Vector3> PedestrianRoute(Vector3 origin,Vector2I start,Vector2I end,Vector3 destination)
     {
-        var cells=Route(start,end,0).Select(Grid).Distinct().ToList();
+        var cells=RouteCells(start,end);
         if(cells.Count==0)return new();
         if(cells.Count<2){
             var cellCenter=Cell(start);var delta=destination-cellCenter;
@@ -102,9 +147,31 @@ public sealed class WorldData
     }
     public void Save(string path)
     {
-        var temp=path+".tmp";
-        var save=new JsonObject{{"version",1},{"snapshot",Snapshot.DeepClone()}};
-        System.IO.File.WriteAllText(temp,save.ToJsonString());
-        System.IO.File.Move(temp,path,true);
+        string staged=StageSave(path,Snapshot);
+        try{File.Move(staged,path,true);}
+        finally{DeleteSaveStage(staged);}
+    }
+
+    internal static string StageSave(string path,JsonObject snapshot)
+    {
+        string temp=path+"."+Guid.NewGuid().ToString("N")+".tmp";
+        try{
+            using(var stream=new FileStream(temp,FileMode.CreateNew,System.IO.FileAccess.Write,FileShare.None))
+            using(var json=new Utf8JsonWriter(stream)){
+                json.WriteStartObject();
+                json.WriteNumber("version",1);
+                json.WritePropertyName("snapshot");
+                snapshot.WriteTo(json);
+                json.WriteEndObject();
+            }
+            return temp;
+        }catch{DeleteSaveStage(temp);throw;}
+    }
+
+    internal static void DeleteSaveStage(string path)
+    {
+        try{File.Delete(path);}
+        catch(IOException){}
+        catch(UnauthorizedAccessException){}
     }
 }

@@ -18,23 +18,24 @@ public partial class Main
         foreach(var center in candidates){bool clear=true;foreach(float x in new[]{-8f,0f,8f})foreach(float z in new[]{-5f,0f,5f}){var point=center+new Vector3(x,0,z);var cell=WorldData.Grid(point);if(Data.Roads.ContainsKey(cell)||!nav.Clear(point)){clear=false;break;}}if(clear){_pasture=center;break;}}
         return _pasture;
     }
-    public static float PetWorldScale(string species)=>species switch{"兔子"=>.12f,"猫咪"=>.13f,"小狗"=>.16f,"绵羊"=>.17f,"羊驼"=>.18f,"梅花鹿"=>.19f,"刺猬"=>.08f,"鹦鹉"=>.09f,"小鸭"=>.12f,"孔雀"=>.14f,_=>.14f};
+    public static float PetWorldScale(string species)=>species switch{"兔子"=>.17f,"猫咪"=>.18f,"小狗"=>.21f,"绵羊"=>.22f,"羊驼"=>.23f,"梅花鹿"=>.24f,"刺猬"=>.11f,"鹦鹉"=>.12f,"小鸭"=>.16f,"孔雀"=>.18f,_=>.18f};
     public Vector3 PetPropPoint(string kind)
     {
+        if(PetActivityStations.TryGetValue(kind,out var station))return PetActivityCenter+station.Offset;
         var item=Data.Root["objects"]!.AsArray().FirstOrDefault(n=>n?["key"] is JsonArray key&&key.Count>1&&key[0]!.ToString()=="prop"&&key[1]!.ToString()==kind);
         return item==null?WorldData.Expand(new(150,0,106)):WorldData.Position(item["pos"]!.AsArray());
     }
     void CreateClimate()
     {
         CpuParticles3D Particles(bool snow){var material=new StandardMaterial3D{AlbedoColor=snow?new Color("f7f7f0"):new Color("a7ccd8"),ShadingMode=BaseMaterial3D.ShadingModeEnum.Unshaded,BillboardMode=BaseMaterial3D.BillboardModeEnum.Enabled};
-            var particles=new CpuParticles3D{Emitting=false,Amount=snow?120:360,Lifetime=snow?9:2.4,Preprocess=snow?6:1.5,VisibilityAabb=new Aabb(new(-45,-40,-36),new(90,85,72)),Mesh=new QuadMesh{Size=snow?new(.16f,.16f):new(.045f,.85f),Material=material},EmissionShape=CpuParticles3D.EmissionShapeEnum.Box,EmissionBoxExtents=new(40,3,32),Direction=Vector3.Down,Spread=snow?25:6,Gravity=snow?new(.1f,-.4f,.1f):new(1,-16,1),InitialVelocityMin=snow?1.2f:13,InitialVelocityMax=snow?2.4f:19,ScaleAmountMin=.65f,ScaleAmountMax=1.2f};AddChild(particles);return particles;
+            var particles=new CpuParticles3D{Emitting=false,Amount=snow?ActiveGraphics.Snow:ActiveGraphics.Rain,Lifetime=snow?9:2.4,Preprocess=snow?6:1.5,VisibilityAabb=new Aabb(new(-45,-40,-36),new(90,85,72)),Mesh=new QuadMesh{Size=snow?new(.16f,.16f):new(.045f,.85f),Material=material},EmissionShape=CpuParticles3D.EmissionShapeEnum.Box,EmissionBoxExtents=new(40,3,32),Direction=Vector3.Down,Spread=snow?25:6,Gravity=snow?new(.1f,-.4f,.1f):new(1,-16,1),InitialVelocityMin=snow?1.2f:13,InitialVelocityMax=snow?2.4f:19,ScaleAmountMin=.65f,ScaleAmountMax=1.2f};AddChild(particles);return particles;
         }
         _rain=Particles(false);_snow=Particles(true);
     }
     void UpdateWorldLife(double delta)
     {
         if(_rain==null)CreateClimate();
-        string climate=Game.Season+Game.Weather;if(_visualClimate!=climate){_visualClimate=climate;_rain!.Emitting=Game.Weather.Contains("雨");_snow!.Emitting=Game.Weather.Contains("雪");
+        string climate=Game.Season+Game.Weather;if(_visualClimate!=climate){_visualClimate=climate;_rain!.Visible=_snow!.Visible=!_reduceWeatherMotion;_rain.Emitting=!_reduceWeatherMotion&&Game.Weather.Contains("雨");_snow.Emitting=!_reduceWeatherMotion&&Game.Weather.Contains("雪");
             _material.SetShaderParameter("season_tint",Game.Season.Contains("秋")?new Vector3(1.2f,.68f,.35f):Game.Season.Contains("冬")?new Vector3(.85f,.92f,1):Game.Season.Contains("夏")?new Vector3(.82f,1.06f,.8f):Vector3.One);
             _material.SetShaderParameter("winter",Game.Season.Contains("冬")?1f:0f);
         }
@@ -80,7 +81,7 @@ public partial class HerdAnimal : CharacterBody3D
     public override void _PhysicsProcess(double delta)
     {
         if(Town.Paused)return;_timer-=delta;
-        if(_index>=_path.Count){_visual.Mesh=Town.PetMesh(_state,"eat",(int)(Time.GetTicksMsec()/250)%4);if(_timer<=0){_timer=7+_random.NextDouble()*8;_target=Origin+new Vector3((float)_random.NextDouble()*14-7,0,(float)_random.NextDouble()*8-4);_nav??=new FarmNavigation(Town);_path=_nav.Route(Position,_target,1);_index=0;}return;}
+        if(_index>=_path.Count){_visual.Mesh=Town.PetMesh(_state,"eat",(int)(Time.GetTicksMsec()/250)%4);if(_timer<=0&&Town.TryScheduleFarmRoutes()){_timer=7+_random.NextDouble()*8;_target=Origin+new Vector3((float)_random.NextDouble()*14-7,0,(float)_random.NextDouble()*8-4);_nav??=new FarmNavigation(Town);_path=_nav.Route(Position,_target,1);_index=0;}return;}
         var diff=_path[_index]-Position;diff.Y=0;if(diff.Length()<.25f){_index++;return;}var direction=diff.Normalized();Velocity=direction*Math.Min(1.5f,diff.Length()/(float)Math.Max(delta,.001))+Vector3.Down*2;MoveAndSlide();Rotation=new(0,Mathf.Atan2(direction.X,direction.Z),0);_visual.Mesh=Town.PetMesh(_state,"walk",(int)(Time.GetTicksMsec()/200)%4);
         if(IsOnWall()){_path.Clear();_timer=1;}
     }

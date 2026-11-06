@@ -7,14 +7,12 @@ using System.Collections.Generic;
 public sealed class FarmNavigation : IDisposable
 {
     readonly Main _town;
-    readonly Dictionary<Vector2I,bool> _clear=new();
     readonly BoxShape3D _body=new(){Size=new(.72f,1.65f,.72f)};
     static readonly Vector2I[] Steps={Vector2I.Up,Vector2I.Right,Vector2I.Down,Vector2I.Left,new(1,1),new(1,-1),new(-1,1),new(-1,-1)};
     int _minX,_maxX,_minZ,_maxZ;
-    string _layout="";
     public FarmNavigation(Main town){_town=town;}
     public void Dispose()=>_body.Dispose();
-    public void Invalidate(){_clear.Clear();}
+    public void Invalidate()=>_town.InvalidateFarmOccupancy();
     public bool CanInteract(Vector3 from,Vector3 target)
     {
         var ray=PhysicsRayQueryParameters3D.Create(from+Vector3.Up*.75f,target+Vector3.Up*.75f,1);
@@ -28,12 +26,10 @@ public sealed class FarmNavigation : IDisposable
     bool Open(Vector2I c)
     {
         if(c.X<_minX||c.X>_maxX||c.Y<_minZ||c.Y>_maxZ)return false;
-        if(!_clear.TryGetValue(c,out bool clear))_clear[c]=clear=Clear(new(c.X,0,c.Y));return clear;
+        return _town.IsFarmCellClear(c,this);
     }
     public List<Vector3> Route(Vector3 from,Vector3 target,float reach)
     {
-        string layout=_town.FarmLayoutSignature;
-        if(layout!=_layout){_layout=layout;Invalidate();}
         _minX=Math.Max(1,(int)Math.Min(from.X,target.X)-24);_maxX=Math.Min((int)WorldData.WorldWidth-1,(int)Math.Max(from.X,target.X)+24);
         _minZ=Math.Max(1,(int)Math.Min(from.Z,target.Z)-24);_maxZ=Math.Min((int)WorldData.WorldDepth-1,(int)Math.Max(from.Z,target.Z)+24);
         var start=new Vector2I(Mathf.RoundToInt(from.X),Mathf.RoundToInt(from.Z));

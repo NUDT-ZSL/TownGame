@@ -2073,6 +2073,30 @@
     "tree_maple": [
       "枫树",
       50
+    ],
+    "kit_garden_planter": [
+      "彩花木槽",
+      32
+    ],
+    "kit_garden_trellis": [
+      "攀花木篱",
+      46
+    ],
+    "kit_market_stall": [
+      "条纹布市集摊",
+      68
+    ],
+    "kit_market_crates": [
+      "果蔬货箱",
+      31
+    ],
+    "kit_park_bench": [
+      "青漆休憩椅",
+      36
+    ],
+    "kit_park_pergola": [
+      "藤荫小廊",
+      78
     ]
   }
 }

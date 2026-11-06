@@ -20,6 +20,9 @@ public partial class RoadAgent : CharacterBody3D
     public string InsideHomeBuildingId="";
     public string WorkSiteId="";
     string _schedule="";
+    string _outfitProfession="";
+    int _outfitShade;
+    MeshInstance3D? _outfitPieces;
     double _scheduleCheck;
     bool _exitRequested;
     double _exitDelay;
@@ -41,6 +44,8 @@ public partial class RoadAgent : CharacterBody3D
     {
         CollisionLayer=IsCar?4u:2u;CollisionMask=7;
         AddChild(Visual);
+        if(!IsCar&&Town.Data.People.FirstOrDefault(row=>row!=null&&NativeGame.S(row,"person_id")==Ident) is JsonNode identity)
+            RefreshResidentOutfit(identity);
         Shape3D shape=IsCar?new BoxShape3D{Size=new(1.5f,1.8f,Kind=="bus"?7.75f:Kind=="truck"?5.625f:4.5f)}:new CapsuleShape3D{Radius=.27f,Height=1.8f};
         AddChild(new CollisionShape3D{Shape=shape,Position=new(0,IsCar?.9f:.9f,0)});
         SafeMargin=.02f;
@@ -65,7 +70,8 @@ public partial class RoadAgent : CharacterBody3D
             _scheduleCheck=.25;
             var scheduled=Town.Data.People.FirstOrDefault(p=>NativeGame.S(p!,"person_id")==Ident);
             if(scheduled is JsonNode person){
-                string schedule=$"{Town.Game.IsResidentNight}:{NativeGame.S(person,"home_building_id")}:{NativeGame.S(person,"destination")}:{NativeGame.S(person,"job_id")}:{NativeGame.I(Town.Data.Meta,"road_revision")}";
+                RefreshResidentOutfit(person);
+                string schedule=$"{Town.Game.IsResidentNight}:{NativeGame.S(person,"home_building_id")}:{NativeGame.S(person,"destination")}:{NativeGame.S(person,"job_id")}:{NativeGame.S(person,"native_festival")}:{(InsideHome?Town.RoadTopologyVersion:0)}";
                 if(schedule!=_schedule){
                     _schedule=schedule;
                     if(InsideHome&&(!Town.Game.IsResidentNight||InsideHomeBuildingId!=NativeGame.S(person,"home_building_id")||Town.Game.ResidentHome(person)==null)){
@@ -81,7 +87,7 @@ public partial class RoadAgent : CharacterBody3D
         if(InsideHome){
             if(_exitRequested&&Town.Resident(Ident) is JsonNode person){
                 _exitDelay-=delta;
-                if(_exitDelay<=0&&!Town.Agents.Any(a=>a!=this&&!a.InsideHome&&a.Position.DistanceTo(Position)<.8f)){LeaveHome(person);Town.AssignRoute(this);}
+                if(_exitDelay<=0&&!Town.NearbyTraffic(this).Any(actor=>actor.Position.DistanceTo(Position)<.8f)){LeaveHome(person);Town.AssignRoute(this);}
             }
             if(InsideHome)return;
         }
@@ -94,8 +100,7 @@ public partial class RoadAgent : CharacterBody3D
         var direction=desired.Normalized();float speed=Speed;
         bool signal=Town.RedLight(this,direction,(float)delta);
         if(signal)speed=0;
-        foreach(var other in Town.Agents) {
-            if(other==this||other.InsideHome||!other.Visual.Visible||other.ProcessMode==ProcessModeEnum.Disabled)continue;
+        foreach(var other in Town.NearbyTraffic(this)) {
             if(!IsCar&&Town.Game.IsFreightDriver(Ident)&&other.Ident==NativeGame.S(Town.Game.FreightState,"vehicle_id"))continue;
             var separation=other.Position-Position;separation.Y=0;
             float forward=separation.Dot(direction);
@@ -113,6 +118,20 @@ public partial class RoadAgent : CharacterBody3D
         MoveAndSlide();
         Position=new(Position.X,Math.Max(0,Position.Y),Position.Z);
         if(speed>.1f)Rotation=new(0,Mathf.Atan2(direction.X,direction.Z),0);
-        if(!IsCar&&speed>.1f)Visual.Mesh=Town.Prototype("person-"+((int)(Time.GetTicksMsec()/140)%4));
+        if(!IsCar&&speed>.1f)Visual.Mesh=Town.ResidentOutfitBody(_outfitProfession,_outfitShade,(int)(Time.GetTicksMsec()/140)%4);
+    }
+
+    void RefreshResidentOutfit(JsonNode person)
+    {
+        string profession=Town.Game.IsFreightDriver(Ident)?"司机":NativeGame.S(person,"profession","无");
+        if(profession==_outfitProfession)return;
+        _outfitProfession=profession;
+        _outfitShade=Town.ResidentOutfitShade(Ident);
+        Visual.Mesh=Town.ResidentOutfitBody(profession,_outfitShade,0);
+        if(_outfitPieces==null){
+            _outfitPieces=new MeshInstance3D{Name="ResidentOutfit"};
+            Visual.AddChild(_outfitPieces);
+        }
+        _outfitPieces.Mesh=Town.ResidentOutfitPieces(profession);
     }
 }

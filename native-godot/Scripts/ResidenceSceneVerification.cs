@@ -36,9 +36,24 @@ public partial class Main
                 Check(_residenceProbeActor.Position.DistanceTo(_residenceProbeActor.HomeDoor)<.5f,"未到家门前即入室");
                 Check(!_residenceProbeActor.Visual.Visible&&_residenceProbeActor.CollisionLayer==0,"室内居民仍占道路碰撞");
                 var house=Game.ResidentHome(_residenceProbePerson!)!;_center=new((NativeGame.I(house,"cx")+NativeGame.I(house,"w")*.5f)*WorldData.GridSize,0,(NativeGame.I(house,"cy")+NativeGame.I(house,"h")*.5f)*WorldData.GridSize);_distance=55;UpdateCamera();
+                string id=_residenceProbeActor.Ident;
+                ClearSceneResidentSelection();
+                UpdatePetMarker(true);
+                Check(!_sceneResidentMarkers.Any(marker=>marker.Target?.Id==id),"室内居民仍显示在道路名字牌中");
+                MarkLocatedResident(id);
+                UpdatePetMarker(true);
+                Check(_sceneResidentMarkers[0].Target?.Site==ResidentMarkerSite.Home&&_sceneResidentMarkers[0].Button.Visible,
+                    "定位室内居民后未在实际住宅显示名字牌");
+                ClearSceneResidentSelection();
                 GetViewport().GuiEmbedSubwindows=true;Select(_camera.UnprojectPosition(_center+Vector3.Up*6));
                 Check(_selectedResidence==NativeGame.S(house,"building_id")&&_management!.Visible,"点击住宅未打开家庭面板");
-                Check(_familyInformation!.Text.Contains(NativeGame.S(_residenceProbePerson!,"name"))&&_familyInformation.Text.Contains("游戏日")&&_familyInformation.Text.Contains("在家休息"),"家庭资料遗漏成员、年龄或状态");
+                var member=_managementBody!.FindChild("HouseholdMember_"+id,true,false);
+                string memberText=member==null?"":string.Join(" ",member.FindChildren("*","Label",true,false).OfType<Label>().Select(label=>label.Text));
+                Check(memberText.Contains(NativeGame.S(_residenceProbePerson!,"name"))&&memberText.Contains("游戏日")&&memberText.Contains("在家休息"),"家庭资料遗漏成员、年龄或状态");
+                var interior=_managementBody!.FindChildren("*","Button",true,false).OfType<Button>().Single(button=>button.Text=="查看室内切面");
+                interior.EmitSignal(BaseButton.SignalName.Pressed);
+                Check(ResidenceOccupants(_selectedResidence).Any(person=>NativeGame.S(person,"person_id")==id)&&
+                    _managementBody!.FindChildren("*","SubViewportContainer",true,false).Count>0,"在家居民未显示在室内切面");
                 GD.Print("RESIDENCE_SCENE_OK all_residents_enter_and_house_pick");_residenceProbeTime=0;_residenceProbeStage=2;return;
             }
             if(_residenceProbeStage==2){
@@ -51,6 +66,17 @@ public partial class Main
                 Check(_residenceProbeTime<20,"同户居民出门排队未完成");
                 if(Agents.Where(a=>Resident(a.Ident)!=null).Any(a=>a.InsideHome))return;
                 Check(!_residenceProbeActor!.InsideHome&&_residenceProbeActor.Visual.Visible&&_residenceProbeActor.CollisionLayer==2&&!NativeGame.B(_residenceProbePerson!,"at_home"),"早晨未恢复出门和碰撞");
+                _center=_residenceProbeActor.Position;
+                _distance=30;
+                UpdateCamera();
+                MarkLocatedResident(_residenceProbeActor.Ident);
+                UpdatePetMarker(true);
+                var marker=_sceneResidentMarkers[0];
+                Check(marker.Button.Visible&&marker.Target?.Anchor==_residenceProbeActor&&marker.Target?.Site==ResidentMarkerSite.Person,
+                    "出门后的名字牌没有切换到可见居民");
+                marker.Button.EmitSignal(BaseButton.SignalName.Pressed);
+                Check(_selection.Contains(NativeGame.S(_residenceProbePerson!,"name")),"点击名字牌没有显示正确的居民资料");
+                GD.Print("RESIDENCE_MARKERS_VERIFIED home_and_outdoor_click");
                 GD.Print("RESIDENCE_SCENE_VERIFIED return_home_click_family_morning_exit");Engine.TimeScale=1;GetTree().Quit();_residenceProbeStage=4;
             }
         }catch(Exception error){GD.PushError(error.ToString());Engine.TimeScale=1;GetTree().Quit(1);_residenceProbeStage=4;}

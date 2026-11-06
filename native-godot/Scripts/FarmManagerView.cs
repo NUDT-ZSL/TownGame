@@ -8,11 +8,21 @@ public partial class Main
 {
     FarmManagerAgent? _farmManager;
     readonly Dictionary<string,MeshInstance3D> _wasteViews=new();
+    readonly Dictionary<string,PetAgent> _farmPets=new();
     double _farmViewTimer;
     Label? _farmManagerInformation;
+    string _farmObstacleSignature="";
     string FarmManagerSummary=>$"农场管理员：{NativeGame.S(Data.Meta,"manager_status")} · 已清扫{NativeGame.I(Data.Meta,"manager_cleaned")}份 · 已喂食{NativeGame.I(Data.Meta,"manager_fed")}次";
-    public string FarmLayoutSignature=>_layoutSignature;
-    public PetAgent? FarmPet(string id)=>GetChildren().OfType<PetAgent>().FirstOrDefault(p=>p.Ident==id&&!p.IsQueuedForDeletion());
+    public string FarmLayoutSignature=>_farmObstacleSignature;
+    internal IEnumerable<PetAgent> FarmPets=>_farmPets.Values;
+    public PetAgent? FarmPet(string id)=>_farmPets.TryGetValue(id,out var actor)&&GodotObject.IsInstanceValid(actor)&&!actor.IsQueuedForDeletion()?actor:null;
+    void AddFarmPet(PetAgent actor)
+    {
+        actor.SetMeta("kind","pet");
+        actor.SetMeta("ident",actor.Ident);
+        _farmPets[actor.Ident]=actor;
+        AddChild(actor);
+    }
     public Vector3 WastePosition(JsonNode pile)
     {
         if(pile["native_x"]==null){
@@ -30,6 +40,28 @@ public partial class Main
         if(NativeGame.S(job,"kind","clean")=="feed")return FarmPet(NativeGame.S(job,"pet_id"))?.Position;
         var pile=Game.Rows("waste").FirstOrDefault(w=>NativeGame.S(w!,"waste_id")==NativeGame.S(job,"waste_id"));
         return pile==null?null:WastePosition(pile);
+    }
+
+    string ManagerTaskCaption(JsonNode job)
+    {
+        if(NativeGame.S(job,"kind")!="feed")return "清扫动物粪便";
+        string name=Data.FindPet(NativeGame.S(job,"pet_id")) is JsonNode pet?NativeGame.S(pet,"name"):"伙伴";
+        return "喂食 · "+name;
+    }
+
+    void LocateFarmManagerTask()
+    {
+        if(Game.CurrentManagerJob is not JsonNode job||FarmTaskTarget(job) is not Vector3 target){
+            SetManagementFeedback("当前任务已结束或暂无场景位置。",true);
+            return;
+        }
+        RememberCameraSite(target);
+        StopPetFollow();StopResidentFollow();ClearSceneResidentSelection();EndPlacement();
+        _selectedPet="";_portraitAnchor=null;_buildCamera=false;_cameraTransition=0;
+        _center=target;_distance=24;_pitch=.89f;
+        _selection=$"管理员任务 · {ManagerTaskCaption(job)}";
+        _management?.Hide();
+        UpdateCamera();
     }
     void UpdateFarmView(double delta)
     {

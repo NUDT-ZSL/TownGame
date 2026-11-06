@@ -69,6 +69,7 @@ public partial class FarmManagerAgent : CharacterBody3D
         }else{
             Activity=feed?"前往喂食":"前往清扫";game.Meta["manager_status"]=Activity;
             if(_path.Count==0||(_lastTarget.DistanceTo(target.Value)>2&&_repath<=0)){
+                if(!Town.TryScheduleFarmRoutes()){Velocity=Vector3.Zero;return;}
                 _path=_navigation.Route(Position,target.Value,reach*.85f);_index=0;_lastTarget=target.Value;_repath=.8;
                 if(_path.Count==0){Retry("通道被挡，等待清理");return;}
             }

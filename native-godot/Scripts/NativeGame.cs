@@ -47,15 +47,9 @@ public sealed partial class NativeGame
         var p=Pets.FirstOrDefault(p=>S(p!,"pet_id")==id&&Active(p!))?.AsObject()??throw new InvalidOperationException("宠物已不在庄园");
         if(!foster&&B(p,"fostered"))throw new InvalidOperationException("请先接出寄养宠物");return p;
     }
-    public int Stock(string item)=>Rows("inventory").Where(b=>S(b!,"item")==item).Sum(b=>I(b!,"quantity"));
+    public int Stock(string item,string owner="")=>InventoryAvailability(item,owner).ForOwner;
     public int Storage=>I(Rules,"BASE_STORAGE",120)+Rows("buildings").Where(b=>S(b!,"kind")=="仓库").Sum(b=>I(b!,"level")*I(Rules,"STORAGE_PER_LEVEL",100));
-    public void Take(string item,int count)
-    {
-        if(count<=0||Stock(item)<count)throw new InvalidOperationException(item+"不足");
-        foreach(var b in Rows("inventory").Where(b=>S(b!,"item")==item).OrderBy(b=>D(b!,"expiry_ts")==0?double.MaxValue:D(b!,"expiry_ts")).ToArray()) {
-            int take=Math.Min(count,I(b!,"quantity"));b!["quantity"]=I(b,"quantity")-take;count-=take;if(I(b,"quantity")==0)Rows("inventory").Remove(b);if(count==0)break;
-        }
-    }
+    public void Take(string item,int count)=>TakeReservedInventory(item,count,"");
     public void Add(string item,int count)
     {
         if(count<=0||Rows("inventory").Sum(b=>I(b!,"quantity"))+count>Storage)throw new InvalidOperationException("仓库容量不足");
@@ -71,8 +65,20 @@ public sealed partial class NativeGame
         return age<life*.1?"幼崽":age<life*.25?"少年":age<life*.8?"成年":"老年";
     }
     public JsonObject Home(JsonNode p)=>Rows("buildings").First(b=>I(b!,"building_id")==I(p,"building_id"))!.AsObject();
-    int Used(int id)=>Pets.Where(p=>Active(p!)&&I(p!,"building_id")==id).Sum(p=>1+(D(p!,"pregnancy_due_ts")>0?1:0));
+    int Used(int id)=>IncubatingAtHome(id)+Pets.Where(p=>Active(p!)&&I(p!,"building_id")==id).Sum(p=>1+(D(p!,"pregnancy_due_ts")>0?1:0));
     int Slots(JsonNode b)=>S(b,"kind")==""?0:I(Spec("BUILDINGS",S(b,"kind")),"capacity")+I(Spec("BUILDINGS",S(b,"kind")),"growth")*(I(b,"level")-1);
+    public int ManorUnlockPrice() => I(Rules,"UNLOCK_BASE",180)+I(Rules,"UNLOCK_GROWTH",30)*
+        Math.Max(0,Rows("buildings").Count(b=>B(b!,"unlocked"))-Rules["INITIAL_OPEN_PLOTS"]!.AsArray().Count);
+    public bool HasOpenManorNeighbor(int index) => Rows("buildings").Any(b=>B(b!,"unlocked")&&
+        Math.Abs(I(b!,"building_id")%5-index%5)+Math.Abs(I(b!,"building_id")/5-index/5)==1);
+    public int ManorUpgradePrice(JsonNode building) =>
+        (int)(I(Spec("BUILDINGS",S(building,"kind")),"cost")*I(building,"level")*Rule("UPGRADE_PRICE_FACTOR",.8));
+    public int DistrictUpgradePrice(string zone)
+    {
+        int level=ZoneLevel(zone);
+        int price=I(root["zones"]![zone]!,"cost");
+        return level==0?price:(int)(price*(level+1)*.75);
+    }
     public string Execute(string action,JsonObject args,Action? persist=null)
     {
         var before=State.DeepClone();long revision=WorldRevision;
@@ -107,9 +113,9 @@ public sealed partial class NativeGame
             case "collect":{var p=Pet(id);if(D(p,"product_ready_ts")==0||D(p,"product_expiry_ts")<=Now)throw new InvalidOperationException("暂无产物");Add(S(Spec("SPECIES",S(p,"species")),"product"),B(p,"rare")?2:1);p["product_ready_ts"]=0;p["product_expiry_ts"]=0;return "产物已收取";}
             case "move": {
                 var p=Pet(id,true);var home=Rows("buildings").FirstOrDefault(b=>I(b!,"building_id")==I(a,"building_id"))??throw new InvalidOperationException("居所不存在");
-                if(I(p,"building_id")==I(home,"building_id"))throw new InvalidOperationException("已经住在此处");
-                if(S(home,"kind")==""||Used(I(home,"building_id"))+1+(D(p,"pregnancy_due_ts")>0?1:0)>Slots(home))throw new InvalidOperationException("居所已满");
-                if(S(home,"kind")=="寄养屋")Pay(I(Rules,"FOSTER_ENTER_COST",40));p["building_id"]=I(home,"building_id");p["fostered"]=S(home,"kind")=="寄养屋";WorldRevision++;return "搬家完成";
+                var quote=QuotePetMove(p,home);
+                if(quote.Reason.Length>0)throw new InvalidOperationException(quote.Reason);
+                if(quote.Kind=="寄养屋")Pay(quote.Fee);p["building_id"]=I(home,"building_id");p["fostered"]=quote.Kind=="寄养屋";WorldRevision++;return "搬家完成";
             }
             case "treat": {
                 var p=Pet(id);string disease=Disease(p);if(disease==""&&D(p,"injury")==0)throw new InvalidOperationException("无需治疗");
@@ -123,22 +129,36 @@ public sealed partial class NativeGame
                 Gain(p,"health",-damage);if(D(p,"health")==0||Random()<fatality)Die(p,"救治无效");return "治疗失败，请恢复后再尝试";
             }
             case "breed":return Conceive(Pet(id),Pet(S(a,"mate_id")));
-            case "buy_pet":{string species=S(a,"species"),sex=S(a,"sex","雌");bool egg=B(a,"egg");var spec=Spec("SPECIES",species);if(!new[]{"雌","雄"}.Contains(sex))throw new InvalidOperationException("性别只能为雌或雄");if(!Rows("buildings").Any(b=>S(b!,"kind")=="商店"))throw new InvalidOperationException("需要商店");if(egg&&spec["egg_available"]!=null&&!B(spec,"egg_available"))throw new InvalidOperationException("该品种不出售宠物蛋");Pay((int)(D(spec,"buy_price",Rule("PET_BUY_COST"))*(egg?Rule("EGG_PRICE_FACTOR"):1)));bool rare=egg&&Random()<Rule("MUTATION_CHANCE");NewPet(species,sex,rare);if(rare)Meta["reputation"]=I(Meta,"reputation")+I(Rules,"EGG_RARE_REPUTATION");WorldRevision++;return "新伙伴已到庄园";}
+            case "buy_pet":return BuyCompanion(a);
+            case "juvenile_care":return JuvenileCare(id);
             case "build_manor": {
                 var b=Rows("buildings").First(b=>I(b!,"building_id")==I(a,"building_id"))!;string kind=S(a,"kind");
                 if(!B(b,"unlocked")||S(b,"kind")!="")throw new InvalidOperationException("地块尚未解锁或已有建筑");Pay(I(Spec("BUILDINGS",kind),"cost"));b["kind"]=kind;b["level"]=1;WorldRevision++;return "建筑已完成";
             }
             case "unlock": {
                 int index=I(a,"building_id");var b=Rows("buildings").First(b=>I(b!,"building_id")==index)!;if(B(b,"unlocked"))throw new InvalidOperationException("已解锁");
-                if(!Rows("buildings").Any(n=>B(n!,"unlocked")&&Math.Abs(I(n!,"building_id")%5-index%5)+Math.Abs(I(n!,"building_id")/5-index/5)==1))throw new InvalidOperationException("需与开放地块相邻");
-                Pay(I(Rules,"UNLOCK_BASE",180)+I(Rules,"UNLOCK_GROWTH",30)*Math.Max(0,Rows("buildings").Count(b=>B(b!,"unlocked"))-Rules["INITIAL_OPEN_PLOTS"]!.AsArray().Count));b["unlocked"]=true;WorldRevision++;return "地块已解锁";
+                if(!HasOpenManorNeighbor(index))throw new InvalidOperationException("需与开放地块相邻");
+                Pay(ManorUnlockPrice());b["unlocked"]=true;WorldRevision++;return "地块已解锁";
             }
-            case "upgrade_manor":{var b=Rows("buildings").First(b=>I(b!,"building_id")==I(a,"building_id"))!;if(S(b,"kind")==""||I(b,"level")>=5)throw new InvalidOperationException("无法升级");Pay((int)(I(Spec("BUILDINGS",S(b,"kind")),"cost")*I(b,"level")*Rule("UPGRADE_PRICE_FACTOR",.8)));b["level"]=I(b,"level")+1;WorldRevision++;return "建筑已升级";}
+            case "upgrade_manor":{var b=Rows("buildings").First(b=>I(b!,"building_id")==I(a,"building_id"))!;if(S(b,"kind")==""||I(b,"level")>=5)throw new InvalidOperationException("无法升级");Pay(ManorUpgradePrice(b));b["level"]=I(b,"level")+1;WorldRevision++;return "建筑已升级";}
             case "autonomy":return ToggleAutonomy();
             case "build_town":return PlaceTown(S(a,"catalog_key"),I(a,"cx"),I(a,"cy"),false,I(a,"orientation"));
+            case "ack_construction":return AcknowledgeConstruction(S(a,"building_id"));
+            case "ack_hatch_notice":return AcknowledgeHatch(id);
             case "road":return EditRoad(a,false);
-            case "open_zone":{string zone=S(a,"zone");int level=ZoneLevel(zone);if(level>=3||zone=="estate")throw new InvalidOperationException("无法升级");int price=I(root["zones"]![zone]!,"cost");Pay(level==0?price:(int)(price*(level+1)*.75));SetZone(zone,level+1);WorldRevision++;return "街区已开放/升级";}
+            case "open_zone":{string zone=S(a,"zone");int level=ZoneLevel(zone);if(level>=3||zone=="estate")throw new InvalidOperationException("无法升级");Pay(DistrictUpgradePrice(zone));SetZone(zone,level+1);WorldRevision++;return "街区已开放/升级";}
             case "order":return DeliverOrder(S(a,"order_id"),id);
+            case "town_commission":return CommissionCommand(S(a,"step"),I(a,"season",-1));
+            case "reserve_stock":return StockReservationCommand(a);
+            case "blueprint":return BlueprintCommand(a);
+            case "blueprint_template":return BlueprintTemplateCommand(a);
+            case "map_pin":return MapPinCommand(a);
+            case "workshop_queue":return WorkshopQueueCommand(a);
+            case "expiry_policy":return ExpiryPolicyCommand(a);
+            case "supply_minimum":return SupplyMinimumCommand(a);
+            case "manager_policy":return ManagerPolicyCommand(a);
+            case "freight_priority":return FreightPriorityCommand(a);
+            case "farm_plot":return FarmPlotCommand(a);
             default:return ActivityCommand(action,a);
         }
     }
@@ -148,15 +168,27 @@ public sealed partial class NativeGame
         if(seconds<=0)return;var before=State.DeepClone();long rev=WorldRevision;
         try {
             double target=Now+seconds;
+            CapturePetHealthDay();
             while(Now<target-1e-8) {
                 double end=Math.Min(target,Math.Min(Now+Hour,D(Meta,"native_next_hour")));
                 foreach(double boundary in ActivityBoundaries())if(boundary>Now+1e-6)end=Math.Min(end,boundary);
+                double healthDay=NextPetHealthDay(),incubation=NextIncubationBoundary();
+                if(healthDay>Now+1e-6)end=Math.Min(end,healthDay);
+                if(incubation>Now+1e-6)end=Math.Min(end,incubation);
+                double workshopBoundary=WorkshopNextBoundary();
+                if(workshopBoundary>Now+1e-6)end=Math.Min(end,workshopBoundary);
+                end=Math.Min(end,NextCompostBoundary());
+                foreach(var building in Rows("town_buildings").OfType<JsonNode>()){
+                    if(S(building,"status")!="building")continue;
+                    double finish=D(building,"finish_ts");
+                    if(finish>Now+1e-6)end=Math.Min(end,finish);
+                }
                 foreach(var p in Pets)if(Active(p!)) {
                     foreach(string key in new[]{"pregnancy_due_ts","product_expiry_ts"})if(D(p!,key)>Now)end=Math.Min(end,D(p!,key));
                 }
-                PauseResidentWorkAtNight(Now,end);AdvancePets(end);Meta["sim_ts"]=end;ExpireInventory();DeliverBabies();TickActivities();RefreshFreight(false);
+                PauseResidentWorkAtNight(Now,end);AdvancePets(end);Meta["sim_ts"]=end;CapturePetHealthDay();ApplyCompostPolicies();ExpireInventory();TickWorkshopQueue();DeliverBabies();TickIncubator();TickActivities();RefreshFreight(false);
                 foreach(var pet in Pets.Where(p=>Active(p!))){string stage=Stage(pet!);if(S(pet!,"last_stage")!=stage){pet!["last_stage"]=stage;Note(pet,"成长阶段："+stage);}}
-                foreach(var b in Rows("town_buildings"))if(S(b!,"status")=="building"&&D(b!,"finish_ts")<=Now){b!["status"]="ready";WorldRevision++;}
+                CompleteTownConstruction();
                 if(Now>=D(Meta,"native_next_hour")-1e-6){Meta["native_next_hour"]=Now+Hour;TickTown();TickSettlement();}
             }
             CheckAchievements();RecordFinance("时间推进结算");Validate();
@@ -167,9 +199,10 @@ public sealed partial class NativeGame
         foreach(var b in Rows("inventory").ToArray())if(D(b!,"expiry_ts")>0&&D(b!,"expiry_ts")<=Now) {
             Rows("inventory").Remove(b);
             if(S(b!,"item")!="腐败物"&&D(b!,"expiry_ts")+Day>Now) {
-                var rotten=b!.DeepClone();rotten["item"]="腐败物";rotten["expiry_ts"]=D(b,"expiry_ts")+Day;Rows("inventory").Add(rotten);
+                var rotten=b!.DeepClone();rotten.AsObject().Remove(ReservationKey);rotten["item"]="腐败物";rotten["expiry_ts"]=D(b,"expiry_ts")+Day;Rows("inventory").Add(rotten);
             }
         }
+        PruneStockReservations();
     }
     void AdvancePets(double end)
     {

@@ -1,9 +1,9 @@
-﻿param([switch]$Editor,[switch]$Smoke,[switch]$Benchmark,[switch]$BenchmarkSimulation,[switch]$Verify,[switch]$UiSmoke,[switch]$ResidenceSmoke,[switch]$ResidencePreview,[switch]$FarmSmoke,[switch]$FarmPreview,[switch]$FreightSmoke,[switch]$FreightPreview,[switch]$MigrationSmoke,[switch]$MigrationPreview,[string]$LogPath)
+﻿param([switch]$Editor,[switch]$Smoke,[switch]$Benchmark,[switch]$BenchmarkSimulation,[switch]$Verify,[switch]$UiSmoke,[switch]$ResidenceSmoke,[switch]$ResidencePreview,[switch]$FarmSmoke,[switch]$FarmPreview,[switch]$FreightSmoke,[switch]$FreightPreview,[switch]$MigrationSmoke,[switch]$MigrationPreview,[switch]$LargeTownSmoke,[string]$LogPath)
 $ErrorActionPreference='Stop'
 $taskRoot=Split-Path -Parent $PSScriptRoot
 $taskDotnet=Join-Path $taskRoot '.tools\dotnet\dotnet.exe'
 $taskGodot=Join-Path $taskRoot '.tools\godot\Godot_v4.7.2-stable_mono_win64\Godot_v4.7.2-stable_mono_win64_console.exe'
-if (!(Test-Path $taskDotnet) -or !(Test-Path $taskGodot)) {throw '缺少便携Godot/.NET工具，请参阅README。'}
+if (!(Test-Path $taskDotnet) -or !(Test-Path $taskGodot)) {throw '缺少便携Godot/.NET工具。请先在项目根目录运行 .\native-godot\setup.ps1。'}
 $env:DOTNET_ROOT=Split-Path $taskDotnet
 $env:PATH="$env:DOTNET_ROOT;$env:PATH"
 $env:DOTNET_CLI_HOME=Join-Path $taskRoot '.tools\dotnet-home'
@@ -29,5 +29,6 @@ if ($FreightSmoke) {$taskArgs+=@('--headless','--','--verify-freight')}
 if ($FreightPreview) {$taskArgs+=@('--','--verify-freight')}
 if ($MigrationSmoke) {$taskArgs+=@('--headless','--','--verify-migration-scene')}
 if ($MigrationPreview) {$taskArgs+=@('--','--verify-migration-scene')}
+if ($LargeTownSmoke) {$taskArgs+=@('--headless','--','--verify-large-town')}
 & $taskGodot @taskArgs
 exit $LASTEXITCODE

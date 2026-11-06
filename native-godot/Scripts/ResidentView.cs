@@ -1,7 +1,6 @@
 using Godot;
 using System;
 using System.Linq;
-using System.Text;
 using System.Text.Json.Nodes;
 
 public partial class Main
@@ -9,7 +8,6 @@ public partial class Main
     Godot.Environment? _residentialSky;
     DirectionalLight3D? _residentialSun;
     string _selectedResidence="";
-    Label? _familyInformation;
     double _familyRefresh;
     string GameClockText=>$"{(int)(Game.Now%86400/3600):00}:{(int)(Game.Now%3600/60):00}";
     public JsonNode? Resident(string id)=>Data.People.FirstOrDefault(p=>NativeGame.S(p!,"person_id")==id&&NativeGame.S(p!,"role")=="居民");
@@ -74,45 +72,26 @@ public partial class Main
     }
     void SelectResidence(string id)
     {
-        _selectedPet="";_selectedResidence=id;ShowManagement("家庭");
+        ShowManagement("家庭","residence:"+id,()=>{_selectedPet="";_selectedResidence=id;});
     }
     void FamilyControls()
     {
-        Text("居民每天20:00回家，次日07:00出门。年龄使用游戏日，7日成年。点击场景住宅也可打开家庭资料。");
-        var homes=Game.Rows("town_buildings").Where(b=>NativeGame.S(Game.Rules["CATALOG"]![NativeGame.S(b!,"catalog_key")]!,"category")=="住宅").ToArray();
-        if(_selectedResidence==""&&homes.Length>0)_selectedResidence=NativeGame.S(homes[0]!,"building_id");
-        var selected=Game.Rows("town_buildings").FirstOrDefault(h=>NativeGame.S(h!,"building_id")==_selectedResidence);
-        if(selected!=null)ActionButton("定位这栋房屋",()=>{_center=new((NativeGame.I(selected,"cx")+NativeGame.I(selected,"w")*.5f)*WorldData.GridSize,0,(NativeGame.I(selected,"cy")+NativeGame.I(selected,"h")*.5f)*WorldData.GridSize);_distance=55;_management!.Hide();});
-        _familyInformation=new Label{AutowrapMode=TextServer.AutowrapMode.WordSmart,CustomMinimumSize=new(840,0)};_managementBody!.AddChild(_familyInformation);RefreshFamilyInformation();
-        Text("住宅列表");
-        foreach(var home in homes){string id=NativeGame.S(home!,"building_id");var members=Game.HomeMembers(id).ToArray();ActionButton($"{ResidenceName(home!)} · {(members.Length==0?"空置":NativeGame.S(members[0],"name")+"一家")} · {members.Length}人",()=>SelectResidence(id));}
-        foreach(var person in Data.People.Where(p=>NativeGame.S(p!,"role")=="居民"&&Game.ResidentHome(p!)==null))Text("等待住房："+NativeGame.S(person!,"name"));
-    }
-    void RefreshFamilyInformation()
-    {
-        if(_familyInformation==null||!GodotObject.IsInstanceValid(_familyInformation)||_familyInformation.IsQueuedForDeletion())return;
-        var home=Game.Rows("town_buildings").FirstOrDefault(h=>NativeGame.S(h!,"building_id")==_selectedResidence);
-        if(home==null){_familyInformation.Text="尚未选择住宅。";return;}
-        var spec=Game.Rules["CATALOG"]![NativeGame.S(home,"catalog_key")]!;
-        if(NativeGame.S(spec,"category")!="住宅"){_familyInformation.Text=ResidenceName(home)+"\n这是一栋非住宅建筑，没有家庭入住。";return;}
-        var members=Game.HomeMembers(_selectedResidence).ToArray();var sb=new StringBuilder();
-        sb.AppendLine(ResidenceName(home));sb.AppendLine($"家庭成员：{members.Length}人 / 容量{NativeGame.I(spec,"population")}人 · {(NativeGame.S(home,"status")=="ready"?"已完工":"施工中")}");
-        sb.AppendLine(Game.HomeRoadEntrance(home)==null?"道路未连通，居民会等待修复，不会穿过建筑回家。":"道路通达");
-        if(members.Length==0)sb.AppendLine("尚无家庭入住。");
-        foreach(var person in members){
-            sb.AppendLine();sb.AppendLine($"{NativeGame.S(person,"name")}　{NativeGame.S(person,"sex")}　{ResidentAge(person)}");
-            sb.AppendLine($"职业：{NativeGame.S(person,"profession")}　状态：{ResidentActivity(person)}");
-            var partner=Data.People.FirstOrDefault(p=>NativeGame.S(p!,"person_id")==NativeGame.S(person,"partner_id"));if(partner!=null)sb.AppendLine("配偶："+NativeGame.S(partner,"name"));
-            if(person["parents"] is JsonArray parents&&parents.Count>0)sb.AppendLine("父母："+string.Join("、",parents.Select(id=>Data.People.FirstOrDefault(p=>NativeGame.S(p!,"person_id")==id!.ToString())).Where(p=>p!=null).Select(p=>NativeGame.S(p!,"name"))));
+        var selected=Game.FindTownBuilding(_selectedResidence);
+        if(selected!=null&&_managementEntryTarget=="interior:"+_selectedResidence&&CanShowResidenceInterior(selected)){
+            ResidenceInteriorControls(selected);
+            return;
         }
-        _familyInformation.Text=sb.ToString().Replace("\r","");
+        if(AddFamilyViewChoice()){
+            ResidentDirectoryControls();
+            return;
+        }
+        if(selected!=null&&_managementEntryTarget=="residence:"+_selectedResidence&&Game.IsResidentialHome(selected))
+            HouseholdResidenceControls(selected);
+        else HousingDirectoryControls();
     }
     void UpdateResidentialView(double delta)
     {
         _familyRefresh+=delta;if(_familyRefresh<.5)return;_familyRefresh=0;
-        if(_management?.Visible==true&&_tab=="家庭")RefreshFamilyInformation();
-        float hour=(float)(Game.Now%86400/3600),daylight=Mathf.SmoothStep(5.5f,8,hour)*(1-Mathf.SmoothStep(17.5f,20,hour));
-        if(_residentialSky!=null){_residentialSky.BackgroundColor=new Color("15233b").Lerp(new Color("afc9ce"),daylight);_residentialSky.AmbientLightColor=new Color("8197bf").Lerp(new Color("e2e9dc"),daylight);_residentialSky.AmbientLightEnergy=Mathf.Lerp(.35f,.25f,daylight);}
-        if(_residentialSun!=null){_residentialSun.LightEnergy=Mathf.Lerp(.12f,.65f,daylight);_residentialSun.LightColor=new Color("99b7ed").Lerp(new Color("fff1d8"),daylight);}
+        UpdateAtmosphere();
     }
 }
